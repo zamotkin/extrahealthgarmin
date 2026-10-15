@@ -20,4 +20,14 @@ abstract class BloodPressureDatabase : RoomDatabase() {
 
     /** The single DAO of this database. */
     abstract fun dao(): BloodPressureDao
+
+    companion object {
+        /**
+         * Database file name (databases/ dir). Wiring must use this constant so
+         * the backup-exclusion rules (res/xml/backup_rules.xml,
+         * res/xml/data_extraction_rules.xml — task tefal2garmin-lnm) match the
+         * actual file: medical rows stay out of cloud backup by design.
+         */
+        const val DATABASE_NAME = "blood_pressure.db"
+    }
 }

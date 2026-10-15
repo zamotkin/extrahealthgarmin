@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Security decision (task tefal2garmin-lnm, security-scan remediation 2026-10-15):
+  blood-pressure medical data is EXCLUDED from cloud backup and device transfer.
+  Uploaded history lives in Garmin Connect; plaintext medical rows must not leave
+  the device — parity with the Keystore-encrypted Garmin tokens. The upload
+  journal (timestamps + user slot) is excluded with it.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="bp_upload_journal.json" />
+        <exclude domain="database" path="blood_pressure.db" />
+        <exclude domain="database" path="blood_pressure.db-wal" />
+        <exclude domain="database" path="blood_pressure.db-shm" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="bp_upload_journal.json" />
+        <exclude domain="database" path="blood_pressure.db" />
+        <exclude domain="database" path="blood_pressure.db-wal" />
+        <exclude domain="database" path="blood_pressure.db-shm" />
+    </device-transfer>
+</data-extraction-rules>
