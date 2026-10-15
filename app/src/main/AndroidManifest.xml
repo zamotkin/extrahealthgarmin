@@ -5,6 +5,23 @@
     <!-- Internet permission for the Garmin Connect login/upload clients -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Omron M7 BLE readout (epic tefal2garmin-xtg): Android 12+ runtime
+         permissions. neverForLocation: the scan targets the Blood Pressure
+         service UUID and never derives location. Runtime requests are owned
+         by the UI epic; omron/ble only checks before connecting. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Legacy permissions for the pre-31 path (minSdk 26): install-time,
+         no runtime request needed. Pre-31 scans additionally require
+         ACCESS_FINE_LOCATION, capped at API 30 so Android 12+ installs
+         stay location-free. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
     <!-- Health Connect (task 2b): the seven synced record types plus
          background reads for the periodic SyncWorker. Must stay in sync with
          health/HealthPermissions.kt (HealthPermissionsTest pins the set).
