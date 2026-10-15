@@ -2,6 +2,7 @@ package com.zamotkin.extrahealthgarmin.data
 
 import android.content.Context
 import android.util.Log
+import com.zamotkin.extrahealthgarmin.garmin.BpUploadJournal
 import com.zamotkin.extrahealthgarmin.garmin.GarminAuthClient
 import com.zamotkin.extrahealthgarmin.garmin.GarminAuthError
 import com.zamotkin.extrahealthgarmin.garmin.GarminConnectionError
@@ -17,6 +18,8 @@ import com.zamotkin.extrahealthgarmin.garmin.MfaClientState
 import com.zamotkin.extrahealthgarmin.garmin.SharedPreferencesTokenPersistence
 import com.zamotkin.extrahealthgarmin.garmin.UploadJournal
 import com.zamotkin.extrahealthgarmin.garmin.UploadResult
+import com.zamotkin.extrahealthgarmin.garmin.bpJournalKey
+import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,6 +67,11 @@ internal interface GarminRemote {
         tokens: GarminTokens
     ): UploadResult
 
+    suspend fun uploadBloodPressure(
+        records: List<BloodPressureReading>,
+        tokens: GarminTokens
+    ): UploadResult
+
     /**
      * Discards any pending MFA flow on the underlying auth client, exactly
      * like [com.zamotkin.extrahealthgarmin.garmin.GarminAuthClient.logout]. Needed
@@ -89,12 +97,18 @@ internal class HttpGarminRemote(
         tokens: GarminTokens
     ): UploadResult = uploadClient.uploadWeighIns(records, tokens)
 
+    override suspend fun uploadBloodPressure(
+        records: List<BloodPressureReading>,
+        tokens: GarminTokens
+    ): UploadResult = uploadClient.uploadBloodPressure(records, tokens)
+
     override fun logout() = authClient.logout()
 }
 
 /**
  * Data-layer orchestration behind [GarminUploadOrchestrator]: deduplicates
- * weigh-in records against the local [UploadJournal], drives
+ * weigh-in records against the local [UploadJournal] (and blood-pressure
+ * readings against [BpUploadJournal], see [uploadBloodPressure]), drives
  * login/MFA-resume/upload through the task-1/2 clients, and reports every
  * failure as a typed outcome.
  *
@@ -105,7 +119,8 @@ internal class HttpGarminRemote(
 class GarminRepository internal constructor(
     private val remote: GarminRemote,
     private val tokenStore: GarminTokenStore,
-    private val journal: UploadJournal
+    private val journal: UploadJournal,
+    private val bpJournal: BpUploadJournal
 ) : GarminUploadOrchestrator {
 
     constructor(context: Context) : this(
@@ -114,7 +129,8 @@ class GarminRepository internal constructor(
             SharedPreferencesTokenPersistence(context),
             KeystoreAesCrypto()
         ),
-        journal = UploadJournal.inFilesDir(context.filesDir)
+        journal = UploadJournal.inFilesDir(context.filesDir),
+        bpJournal = BpUploadJournal.inFilesDir(context.filesDir)
     )
 
     /**
@@ -255,6 +271,71 @@ class GarminRepository internal constructor(
                 // Unreachable by construction — kept so the interface can
                 // never throw.
                 Log.w(TAG, "Upload failed unexpectedly", e)
+                UploadOutcome.Retryable("Unexpected error: ${reasonOf(e)}")
+            }
+        }
+
+    /**
+     * Blood-pressure counterpart of [uploadNewRecords] (epic tefal2garmin-939,
+     * direct upload only — no export/share path anywhere). Deduplicates
+     * [records] against the local [BpUploadJournal] (composite key =
+     * timestampEpochSec + userSlot, so USER1 and USER2 never dedup each
+     * other), uploads the new ones as ONE blood_pressure FIT batch through
+     * the same client path and exception mapping as weigh-ins, and on a
+     * confirmed import journals the confirmed records and returns them as
+     * [UploadOutcome.BpUploaded.confirmedRecords] — repository-agnostic: this
+     * class neither knows nor touches the caller's own sync bookkeeping (the
+     * caller marks the confirmed records synced in its store). Never throws.
+     */
+    suspend fun uploadBloodPressure(records: List<BloodPressureReading>): UploadOutcome =
+        withContext(Dispatchers.IO) {
+            val newRecords = bpJournal.filterNew(records)
+            if (newRecords.isEmpty()) {
+                Log.d(TAG, "BP upload: journal covers every record - skipping network")
+                return@withContext UploadOutcome.NotNeeded
+            }
+
+            val tokens = tokenStore.load()
+            if (tokens == null) {
+                Log.d(TAG, "BP upload: no stored DI tokens - login required")
+                return@withContext UploadOutcome.LoginRequired
+            }
+
+            try {
+                when (val result = remote.uploadBloodPressure(newRecords, tokens)) {
+                    is UploadResult.Success -> {
+                        bpJournal.markUploaded(newRecords)
+                        // Persist the (possibly rotated) tokens the upload actually used.
+                        tokenStore.save(result.tokens)
+                        Log.d(TAG, "BP upload: ${newRecords.size} records confirmed by Garmin")
+                        UploadOutcome.BpUploaded(newRecords)
+                    }
+                    is UploadResult.Partial -> {
+                        // Journal ONLY the provably imported records; everything
+                        // else stays retriable.
+                        val confirmedByKey = result.succeededKeys.toHashSet()
+                        val confirmed = newRecords.filter { it.bpJournalKey() in confirmedByKey }
+                        bpJournal.markUploaded(confirmed)
+                        tokenStore.save(result.tokens)
+                        UploadOutcome.BpUploaded(confirmed, result.failureMessages)
+                    }
+                }
+            } catch (e: GarminAuthError) {
+                Log.w(TAG, "BP upload: auth rejected (${reasonOf(e)}) - clearing stored tokens")
+                tokenStore.clear()
+                UploadOutcome.LoginRequired
+            } catch (e: GarminTooManyRequestsError) {
+                UploadOutcome.Retryable(reasonOf(e))
+            } catch (e: GarminConnectionError) {
+                UploadOutcome.Retryable(reasonOf(e))
+            } catch (e: GarminValidationError) {
+                // Defensive: the client validates before encoding; nothing was sent.
+                UploadOutcome.Retryable(reasonOf(e))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unreachable by construction — kept so the method can never throw.
+                Log.w(TAG, "BP upload failed unexpectedly", e)
                 UploadOutcome.Retryable("Unexpected error: ${reasonOf(e)}")
             }
         }

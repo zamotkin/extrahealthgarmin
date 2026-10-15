@@ -163,6 +163,22 @@ class MainViewModel(
                     uploadMessages = outcome.failureMessages
                 )
             }
+            is UploadOutcome.BpUploaded -> updateState {
+                // Unreachable from the weigh-in flow (only the blood-pressure
+                // pipeline reports this variant); mapped by closest semantics.
+                if (outcome.failureMessages.isEmpty()) {
+                    it.copy(
+                        uploadStatus = GarminUploadStatus.SUCCESS,
+                        uploadedCount = outcome.confirmedRecords.size
+                    )
+                } else {
+                    it.copy(
+                        uploadStatus = GarminUploadStatus.PARTIAL,
+                        uploadedCount = outcome.confirmedRecords.size,
+                        uploadMessages = outcome.failureMessages
+                    )
+                }
+            }
             is UploadOutcome.Retryable -> updateState {
                 it.copy(
                     uploadStatus = GarminUploadStatus.RETRYABLE,

@@ -1,5 +1,6 @@
 package com.zamotkin.extrahealthgarmin.data
 
+import com.zamotkin.extrahealthgarmin.garmin.BpUploadJournal
 import com.zamotkin.extrahealthgarmin.garmin.GarminAuthError
 import com.zamotkin.extrahealthgarmin.garmin.GarminConnectionError
 import com.zamotkin.extrahealthgarmin.garmin.GarminTokenStore
@@ -75,6 +76,12 @@ class GarminRepositoryRecordsTest {
             )
         }
 
+        override suspend fun uploadBloodPressure(
+            records: List<com.zamotkin.extrahealthgarmin.omron.BloodPressureReading>,
+            tokens: GarminTokens
+        ): UploadResult =
+            throw AssertionError("uploadBloodPressure() is not under test in GarminRepositoryRecordsTest")
+
         override fun logout() =
             throw AssertionError("logout() is not under test in GarminRepositoryRecordsTest")
     }
@@ -115,7 +122,12 @@ class GarminRepositoryRecordsTest {
     private val tokenStore = GarminTokenStore(tokenPersistence, PlainTextCrypto())
     private val journalPersistence = InMemoryJournalPersistence()
     private val journal = UploadJournal(journalPersistence)
-    private val repository = GarminRepository(remote, tokenStore, journal)
+    private val repository = GarminRepository(
+        remote,
+        tokenStore,
+        journal,
+        BpUploadJournal(InMemoryJournalPersistence()) // BP path not under test
+    )
 
     // ------------------------------------------------------------------ //
     //  Fixtures                                                           //
@@ -329,7 +341,8 @@ class GarminRepositoryRecordsTest {
         val repository2 = GarminRepository(
             remote2,
             GarminTokenStore(InMemoryTokenPersistence(), PlainTextCrypto()).also { it.save(TOKENS) },
-            UploadJournal(journalPersistence2)
+            UploadJournal(journalPersistence2),
+            BpUploadJournal(InMemoryJournalPersistence()) // BP path not under test
         )
         remote2.uploadException = GarminValidationError("Weight 900.0 kg outside plausible range (0, 500.0]")
 
