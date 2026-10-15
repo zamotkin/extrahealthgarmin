@@ -208,6 +208,24 @@ class SyncEngine(
                 )
                 SyncResult.PartialUploaded(outcome.uploadedCount, outcome.failureMessages)
             }
+            is UploadOutcome.BpUploaded -> {
+                // Unreachable from the weigh-in flow (only the blood-pressure
+                // pipeline reports this variant); mapped by closest semantics.
+                persistTerminal(
+                    state, nextToken(), heightMeters,
+                    newlyProcessedIds = pending.map { it.recordId },
+                    keepLastSync = aggregation.deferredAnchorIds.isNotEmpty(),
+                    now = now
+                )
+                if (outcome.failureMessages.isEmpty()) {
+                    SyncResult.Uploaded(outcome.confirmedRecords.size)
+                } else {
+                    SyncResult.PartialUploaded(
+                        outcome.confirmedRecords.size,
+                        outcome.failureMessages
+                    )
+                }
+            }
             is UploadOutcome.Retryable -> SyncResult.Retryable
             UploadOutcome.LoginRequired -> SyncResult.LoginRequired
         }
