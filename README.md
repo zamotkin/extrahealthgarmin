@@ -1,5 +1,7 @@
 # Extra Health Garmin — Health Connect to Garmin Connect body-composition sync
 
+<p align="center"><img src="docs/images/social-preview.png" alt="Extra Health Garmin" width="640"></p>
+
 [![GitHub release](https://img.shields.io/github/v/release/zamotkin/extrahealthgarmin)](https://github.com/zamotkin/extrahealthgarmin/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/zamotkin/extrahealthgarmin/total)](https://github.com/zamotkin/extrahealthgarmin/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
