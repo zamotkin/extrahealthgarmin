@@ -5,6 +5,8 @@ import com.zamotkin.extrahealthgarmin.garmin.GarminAuthError
 import com.zamotkin.extrahealthgarmin.garmin.GarminConnectionError
 import com.zamotkin.extrahealthgarmin.garmin.GarminTokenStore
 import com.zamotkin.extrahealthgarmin.garmin.GarminTokens
+import com.zamotkin.extrahealthgarmin.garmin.GarminTooManyRequestsError
+import com.zamotkin.extrahealthgarmin.garmin.GarminValidationError
 import com.zamotkin.extrahealthgarmin.garmin.JournalPersistence
 import com.zamotkin.extrahealthgarmin.garmin.LoginResult
 import com.zamotkin.extrahealthgarmin.garmin.MfaClientState
@@ -33,6 +35,10 @@ import org.junit.Test
  * The BP outcome under test is [UploadOutcome.BpUploaded]: unlike the weight
  * flow the caller must know WHICH records were confirmed so it can mark them
  * synced in its own store, hence the confirmed-records payload.
+ *
+ * Catch-chain coverage for the BP method (too-many-requests / validation /
+ * unexpected exception) added by task tefal2garmin-ji0 — previously only the
+ * weight path exercised these branches.
  */
 class GarminRepositoryBpTest {
 
@@ -281,6 +287,70 @@ class GarminRepositoryBpTest {
             1,
             remote.bpUploadCalls
         )
+    }
+
+    // Task tefal2garmin-ji0: the remaining catch-chain branches, previously
+    // covered only for the weight path (GarminRepositoryRecordsTest).
+
+    @Test
+    fun `uploadBloodPressure_tooManyRequests_returnsRetryable`() = runTest {
+        tokenStore.save(TOKENS)
+        remote.bpUploadException = GarminTooManyRequestsError("Upload returned HTTP 429 - rate limited")
+
+        val outcome = repository.uploadBloodPressure(listOf(reading(E1), reading(E2)))
+
+        assertTrue("expected Retryable, was $outcome", outcome is UploadOutcome.Retryable)
+        val retryable = outcome as UploadOutcome.Retryable
+        assertTrue("reason must mention the rate limit, was ${retryable.reason}", retryable.reason.contains("429"))
+        assertEquals("nothing journaled", 0, bpJournal.uploadedCount())
+        assertEquals("journal persistence untouched", 0, bpJournalPersistence.savedCount)
+        assertEquals(
+            "rate limiting is not an auth problem — tokens must survive",
+            TOKENS,
+            tokenStore.load()
+        )
+        assertEquals("token persistence must not be emptied", 0, tokenPersistence.removeCount)
+    }
+
+    @Test
+    fun `uploadBloodPressure_validationError_returnsRetryable`() = runTest {
+        tokenStore.save(TOKENS)
+        remote.bpUploadException = GarminValidationError("Record 1 rejected: systolic outside plausible range")
+
+        val outcome = repository.uploadBloodPressure(listOf(reading(E1)))
+
+        assertTrue("expected Retryable, was $outcome", outcome is UploadOutcome.Retryable)
+        val retryable = outcome as UploadOutcome.Retryable
+        assertTrue(
+            "reason must carry the client's message, was ${retryable.reason}",
+            retryable.reason.contains("plausible range")
+        )
+        assertEquals("nothing journaled", 0, bpJournal.uploadedCount())
+        assertEquals("journal persistence untouched", 0, bpJournalPersistence.savedCount)
+        assertEquals(1, remote.bpUploadCalls)
+    }
+
+    @Test
+    fun `uploadBloodPressure_unexpectedException_returnsRetryable`() = runTest {
+        tokenStore.save(TOKENS)
+        remote.bpUploadException = RuntimeException("encoder crashed")
+
+        val outcome = repository.uploadBloodPressure(listOf(reading(E1)))
+
+        assertTrue("expected Retryable, was $outcome", outcome is UploadOutcome.Retryable)
+        val retryable = outcome as UploadOutcome.Retryable
+        assertTrue(
+            "unexpected errors are wrapped with the Unexpected error prefix, was ${retryable.reason}",
+            retryable.reason.contains("Unexpected error") && retryable.reason.contains("encoder crashed")
+        )
+        assertEquals("nothing journaled", 0, bpJournal.uploadedCount())
+        assertEquals("journal persistence untouched", 0, bpJournalPersistence.savedCount)
+        assertEquals(
+            "an unexpected crash is not an auth problem — tokens must survive",
+            TOKENS,
+            tokenStore.load()
+        )
+        assertEquals("token persistence must not be emptied", 0, tokenPersistence.removeCount)
     }
 
     // ------------------------------------------------------------------ //

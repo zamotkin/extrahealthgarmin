@@ -1,10 +1,12 @@
 package com.zamotkin.extrahealthgarmin.omron.data
 
 import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -14,6 +16,8 @@ import org.junit.Test
  * whole fixture. The fake honors Room's @Insert(IGNORE) contract (unique key =
  * timestampEpochSec + userSlot, ignored rows report -1) and the query filters,
  * so dedup/ordering claims are proven against DAO semantics, not faked away.
+ *
+ * CancellationException hygiene test added by task tefal2garmin-ji0.
  */
 class OmronBpRepositoryTest {
 
@@ -254,5 +258,25 @@ class OmronBpRepositoryTest {
         assertEquals(emptyList<BloodPressureReading>(), latest)
         assertEquals(4, errors.size)
         assertTrue(errors.all { it is IllegalStateException })
+    }
+
+    /**
+     * Task tefal2garmin-ji0: a CancellationException from the DAO must
+     * PROPAGATE (rethrown before the runCatching fallback) — swallowing it
+     * into an empty-list fallback would keep a cancelled coroutine running
+     * as if nothing happened.
+     */
+    @Test
+    fun `cancellation exception from dao propagates instead of falling back`() = runTest {
+        dao.failure = CancellationException("coroutine cancelled")
+
+        try {
+            repository.unsynced()
+            fail("CancellationException must propagate, not fall back to an empty list")
+        } catch (e: CancellationException) {
+            // expected — the gateway rethrows cancellation before the fallback
+        }
+
+        assertEquals("cancellation is not a DAO failure — onError stays silent", 0, errors.size)
     }
 }
