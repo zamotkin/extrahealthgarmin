@@ -1,3 +1,7 @@
 plugins {
     id 'com.android.application' version '9.4.1' apply false
+    // KSP for Room codegen (omron/data). 2.3.10+ carries explicit AGP 9
+    // built-in-Kotlin support (ksp#2857) — required here because
+    // org.jetbrains.kotlin.android is intentionally not applied.
+    id 'com.google.devtools.ksp' version '2.3.12' apply false
 }
