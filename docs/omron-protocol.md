@@ -104,8 +104,12 @@ whether the ALRU variant differs; until then the Kotlin client implements the 16
 
 | Step | Frame (hex) | Meaning |
 |---|---|---|
-| Session start | `08 00 00 00 00 10 00 18` | type `0000`, address `0x0010`, 0 data bytes, XOR-CRC `0x18` |
-| Session end | `08 0f 00 00 00 00 00 07` | type `0f00`, address `0x0000`, XOR-CRC `0x07` |
+| Session start | `08 00 00 00 00 10 00 18` | FIXED frame: type `0000`, address `0x0000`, count field = magic `0x10`, XOR-CRC `0x18` |
+| Session end | `08 0f 00 00 00 00 00 07` | type `0f00`, address `0x0000`, count `0x00`, XOR-CRC `0x07` |
+
+Per-frame variants (Task 3 amendment, 2026-10-15): the session start is a fixed literal whose
+count field carries magic `0x10` (the parser must NOT treat it as a data length); a read
+command puts the read size in the count field and has no data bytes (`08 01 00 <addr:2> <size> 00 <crc>`); only write commands carry data (`N = 6 + M + 2`).
 
 Expected responses: `8000` for start; `8f00` for end (its first data byte is a device status
 code — must be 0; omblepy special-cases `8f00` to expose this status, `_callbackForRxChannels`).
