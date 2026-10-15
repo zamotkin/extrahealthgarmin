@@ -4,6 +4,7 @@ import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 /**
  * Tests for [BpUploadJournal] against an in-memory [JournalPersistence]
@@ -13,6 +14,9 @@ import org.junit.Test
  * USER2 is two DIFFERENT records and must never dedup each other. Plain
  * JUnit only (Robolectric cannot run on this repo's JDK 26 toolchain;
  * android.util.Log is a stubbed no-op).
+ *
+ * Persistence-failure behavior (save throws / load throws at construction)
+ * pinned by task tefal2garmin-ji0.
  */
 class BpUploadJournalTest {
 
@@ -144,5 +148,61 @@ class BpUploadJournalTest {
         assertEquals("corrupted journal must start empty, never crash", 0, journal.uploadedCount())
         val newRecords = journal.filterNew(listOf(reading(9L)))
         assertEquals(listOf(9L), newRecords.map { it.timestampEpochSec })
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Persistence failures (task tefal2garmin-ji0)                       //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * A save that throws must never escape [markUploaded] nor corrupt the
+     * in-memory dedup set — worst case the journal forgets its history on
+     * restart (Garmin answers duplicate-detection), it must not crash the
+     * sync pass.
+     */
+    @Test
+    fun `save_failure_keeps_in_memory_state_and_never_throws`() {
+        val persistence = object : JournalPersistence {
+            override fun load(): String? = null
+
+            override fun save(json: String) {
+                throw IOException("disk full")
+            }
+        }
+        val journal = BpUploadJournal(persistence)
+
+        journal.markUploaded(listOf(reading(1L), reading(2L, userSlot = 2)))
+
+        assertEquals("the in-memory set grows even when persistence fails", 2, journal.uploadedCount())
+        assertEquals(
+            "filterNew still dedups from the in-memory set",
+            listOf(3L),
+            journal.filterNew(listOf(reading(1L), reading(2L, userSlot = 2), reading(3L)))
+                .map { it.timestampEpochSec }
+        )
+    }
+
+    /**
+     * A load that throws at construction must degrade to a fresh empty
+     * journal, mirroring the corrupted-JSON behavior — construction never
+     * crashes.
+     */
+    @Test
+    fun `load_failure_at_construction_degrades_to_fresh_journal`() {
+        val persistence = object : JournalPersistence {
+            override fun load(): String? {
+                throw IOException("journal unreadable")
+            }
+
+            override fun save(json: String) {}
+        }
+
+        val journal = BpUploadJournal(persistence)
+
+        assertEquals("an unreadable journal starts empty, never crashes", 0, journal.uploadedCount())
+        assertEquals(
+            listOf(1L),
+            journal.filterNew(listOf(reading(1L))).map { it.timestampEpochSec }
+        )
     }
 }

@@ -31,12 +31,23 @@ import java.util.Date
  * far inside the uint16 wire range, so unlike the float weight fields no
  * pre-encoding range validation is needed. Empty input is rejected the
  * same way as [FitWeightFileBuilder]: the `time_created` lookup over an
- * empty list throws.
+ * empty list throws. Each record's `userSlot` must be 1 or 2 (guarded per
+ * record with `require` before any encoding, task tefal2garmin-ji0): a
+ * public caller must never be able to emit userProfileIndex -1 or
+ * wrong-user medical-data attribution — previously this was guarded only
+ * by [com.zamotkin.extrahealthgarmin.omron.protocol.OmronSession] on a
+ * different code path.
  */
 object FitBloodPressureFileBuilder {
 
     /** Returns the encoded FIT bytes. */
     fun build(records: List<BloodPressureReading>): ByteArray {
+        records.forEach { record ->
+            require(record.userSlot in 1..2) {
+                "userSlot ${record.userSlot} outside Omron slots 1..2 — would encode " +
+                    "userProfileIndex ${record.userSlot - 1} (wrong-user attribution)"
+            }
+        }
         val encoder = BufferEncoder()
         encoder.write(fileIdMessage(records))
         records.forEach { encoder.write(bloodPressureMessage(it)) }
