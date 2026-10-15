@@ -4,4 +4,9 @@ plugins {
     // built-in-Kotlin support (ksp#2857) — required here because
     // org.jetbrains.kotlin.android is intentionally not applied.
     id 'com.google.devtools.ksp' version '2.3.12' apply false
+    // Compose compiler plugin — version MUST match the Kotlin compiler behind
+    // AGP 9's built-in Kotlin (KGP 2.2.10, a runtime dependency of AGP 9.x).
+    // See AGP 9 release notes: built-in Kotlin pins KGP 2.2.10 minimum and
+    // auto-upgrades lower versions; this plugin ships with Kotlin itself.
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.2.10' apply false
 }
