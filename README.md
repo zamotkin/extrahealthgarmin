@@ -36,7 +36,9 @@ Open source (MIT), no ads, no tracking — just your scale data where you want i
 
 **Demo** — a full manual sync pass, from tap to result (opens the video in the browser player):
 
-[![Demo: one manual sync pass from tap to result](docs/images/screenshot-main.png)](docs/images/demo-sync.mp4)
+<a href="docs/images/demo-sync.mp4">
+    <img src="docs/images/screenshot-main.png" alt="Demo: one manual sync pass from tap to result" width="320">
+</a>
 
 ## 🚀 Quick Start — install, link Garmin Connect, sync
 
