@@ -68,6 +68,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Omron blood-pressure UI (epic tefal2garmin-939, task
+             tefal2garmin-mnb): Compose host for the transfer flow, readings
+             dashboard and settings. Launched only from MainActivity. -->
+        <activity
+            android:name=".ui.omron.OmronActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ExtraHealthGarmin.NoActionBar" />
+
         <!-- Health Connect permission-usage rationale (task 2b): the system
              entry point behind Health Connect's "see how this app uses your
              data". Deliberately an activity-alias onto MainActivity rather

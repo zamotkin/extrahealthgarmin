@@ -37,4 +37,43 @@
     <string name="upload_not_needed">All measurements are already in Garmin Connect — nothing to upload</string>
     <string name="upload_partial">Uploaded %1$d of %2$d. Failed records will retry with next sync</string>
     <string name="upload_retryable">Upload failed, will retry with next sync</string>
+
+    <!-- Omron blood pressure (epic tefal2garmin-939, UI task tefal2garmin-mnb) -->
+    <string name="omron_open">Blood pressure (Omron)</string>
+    <string name="omron_title_dashboard">Blood pressure</string>
+    <string name="omron_title_transfer">Transfer from the monitor</string>
+    <string name="omron_title_settings">Settings</string>
+    <string name="omron_tab_readings">Readings</string>
+    <string name="omron_tab_transfer">Transfer</string>
+    <string name="omron_tab_settings">Settings</string>
+    <string name="omron_pairing_step1">Hold the transfer button on the monitor for 3–5 seconds until “-P-” appears on the display</string>
+    <string name="omron_pairing_step2">Keep the monitor close to the phone — it shows [OK] when the transfer is complete</string>
+    <string name="omron_pairing_step3">The monitor works with one app at a time — unpair it from Omron Connect first</string>
+    <string name="omron_start">Start transfer</string>
+    <string name="omron_reading">Reading from the monitor...</string>
+    <string name="omron_permissions_rationale">Bluetooth permissions are required to read from the monitor</string>
+    <string name="omron_permissions_grant">Grant permissions</string>
+    <string name="omron_success">Transferred %1$d new measurements</string>
+    <string name="omron_success_none">No new measurements on the monitor</string>
+    <string name="omron_error_failed">Transfer failed</string>
+    <string name="omron_bonding_required">The monitor is not paired with this phone. Pair it in the Android Bluetooth settings, then try again</string>
+    <string name="omron_error_auth">The monitor rejected the pairing key of this app - it is paired with another phone or app. Clear the app data and pair the monitor again</string>
+    <string name="omron_error_timeout">The monitor did not respond in time. Make sure its display shows -P- and try again</string>
+    <string name="omron_error_disconnected">The monitor disconnected during the transfer - keep it close and try again</string>
+    <string name="omron_error_unexpected">Unexpected error: %1$s</string>
+    <string name="omron_error_garmin_login_required">Sign in to Garmin to upload measurements</string>
+    <string name="omron_error_sync_partial">Some measurements were not uploaded to Garmin - they are saved and will retry on the next sync</string>
+    <string name="omron_error_sync_retryable">Upload to Garmin failed - the measurements are saved and will retry on the next sync</string>
+    <string name="omron_autosync">Upload to Garmin automatically</string>
+    <string name="omron_no_readings">No measurements yet - transfer them from the monitor</string>
+    <string name="omron_reading_sys_dia">%1$d/%2$d mmHg</string>
+    <string name="omron_reading_pulse">%1$d bpm</string>
+    <string name="omron_badge_mov">MOV</string>
+    <string name="omron_badge_ihb">IHB</string>
+    <string name="omron_user1">User 1</string>
+    <string name="omron_user2">User 2</string>
+    <string name="omron_settings_user_section">Monitor user</string>
+    <string name="omron_slot_hint">Each monitor user has measurements transferred and stored separately</string>
+    <string name="omron_settings_relogin">Sign in to Garmin again</string>
+    <string name="omron_open_readings">View readings</string>
 </resources>

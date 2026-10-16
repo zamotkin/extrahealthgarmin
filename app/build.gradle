@@ -106,9 +106,19 @@ dependencies {
     // so release sources compiling @Preview functions link too.
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.material3:material3'
+    // LiveData -> Compose bridging (observeAsState) for the Omron screens.
+    implementation 'androidx.compose.runtime:runtime-livedata'
+    // Bottom-bar icons for the Omron screen (core set: List/Refresh/Settings).
+    implementation 'androidx.compose.material:material-icons-core:1.7.8'
     // Interactive preview rendering is debug-only tooling.
     debugImplementation 'androidx.compose.ui:ui-tooling'
-    
+
+    // Compose hosting (setContent) + navigation for the Omron blood-pressure
+    // screen (epic tefal2garmin-939). navigation 2.9.x is the newest line on
+    // compileSdk 36 - from 2.10.0 the artifacts require minCompileSdk 37.
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.navigation:navigation-compose:2.9.8'
+
     // ViewModel and LiveData
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
     implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.7.0'
