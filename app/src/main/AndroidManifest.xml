@@ -14,10 +14,14 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- Legacy permissions for the pre-31 path (minSdk 26): install-time,
-         no runtime request needed. Pre-31 scans additionally require
-         ACCESS_FINE_LOCATION, capped at API 30 so Android 12+ installs
-         stay location-free. -->
+    <!-- Legacy permissions for the pre-31 path (minSdk 26). BLUETOOTH/
+         BLUETOOTH_ADMIN are install-time. ACCESS_FINE_LOCATION is a
+         dangerous permission whose runtime grant has been required since
+         API 23: without it pre-31 BLE scans silently return empty results
+         (task tefal2garmin-983). Runtime requests are owned by the UI
+         epic; OmronBleClient.missingPermissions checks the grant before
+         connecting. Capped at API 30 so Android 12+ installs stay
+         location-free. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />

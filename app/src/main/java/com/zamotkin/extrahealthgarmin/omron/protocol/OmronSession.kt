@@ -4,9 +4,17 @@ import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 
 /**
  * Thrown when a session step fails (unlock rejected, unexpected response, device
- * end-status != 0). The BLE layer maps this onto OmronBleResult.
+ * end-status != 0). The BLE layer maps this onto OmronBleResult. Open for the
+ * typed [UnlockRejectedException] subclass (task tefal2garmin-983).
  */
-class OmronSessionException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class OmronSessionException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * The device rejected the application key at unlock (spec §3.3) — the key is
+ * not registered on the device. Typed (task tefal2garmin-983) so the BLE layer
+ * maps it onto OmronBleResult.AuthFailed without string-matching the message.
+ */
+class UnlockRejectedException(message: String) : OmronSessionException(message)
 
 /**
  * Transport seam between the pure-JVM session logic and the Android BLE stack.
@@ -55,7 +63,7 @@ object OmronSession {
             // 1. unlock with the application-level key (spec §3.3)
             val unlockResponse = UnlockCodec.classify(transport.writeUnlock(UnlockCodec.unlock(key)))
             if (unlockResponse != UnlockCodec.Response.Unlocked) {
-                throw OmronSessionException("unlock rejected: $unlockResponse — key not registered on device?")
+                throw UnlockRejectedException("unlock rejected: $unlockResponse — key not registered on device?")
             }
 
             // 2. session start (spec §4.1)
