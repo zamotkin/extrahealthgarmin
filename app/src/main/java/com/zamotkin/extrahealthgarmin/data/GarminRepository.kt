@@ -22,6 +22,8 @@ import com.zamotkin.extrahealthgarmin.garmin.bpJournalKey
 import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -141,6 +143,15 @@ class GarminRepository internal constructor(
      */
     @Volatile
     private var pendingMfaClientState: MfaClientState? = null
+
+    /**
+     * Single-flight guard for [uploadBloodPressure] (task tefal2garmin-n3q):
+     * held across the whole filterNew -> upload -> markUploaded sequence so
+     * concurrent invocations serialize instead of racing the check-then-act
+     * dedup — without it, two passes can both pass filterNew before either
+     * marks the journal and the same reading uploads to Garmin twice.
+     */
+    private val bpUploadMutex = Mutex()
 
     // ------------------------------------------------------------------ //
     //  GarminUploadOrchestrator                                           //
@@ -286,57 +297,72 @@ class GarminRepository internal constructor(
      * [UploadOutcome.BpUploaded.confirmedRecords] — repository-agnostic: this
      * class neither knows nor touches the caller's own sync bookkeeping (the
      * caller marks the confirmed records synced in its store). Never throws.
+     *
+     * Concurrency contract (task tefal2garmin-n3q): the whole
+     * filterNew -> upload -> markUploaded sequence runs under a per-instance
+     * single-flight mutex — a concurrent caller of THIS instance WAITS, then
+     * sees the journal already updated and answers
+     * [UploadOutcome.NotNeeded] with zero network, so a reading is never
+     * uploaded twice. Cross-process or cross-instance concurrency (two
+     * repositories over one journal file) is NOT serialized by this mutex;
+     * it is defused at the persistence layer by [BpUploadJournal]'s
+     * merge-on-save. Same-process callers should share one repository
+     * instance (the manual wiring does) — mirroring
+     * [com.zamotkin.extrahealthgarmin.health.SyncEngine]'s same-process
+     * serialization contract.
      */
     suspend fun uploadBloodPressure(records: List<BloodPressureReading>): UploadOutcome =
         withContext(Dispatchers.IO) {
-            val newRecords = bpJournal.filterNew(records)
-            if (newRecords.isEmpty()) {
-                Log.d(TAG, "BP upload: journal covers every record - skipping network")
-                return@withContext UploadOutcome.NotNeeded
-            }
-
-            val tokens = tokenStore.load()
-            if (tokens == null) {
-                Log.d(TAG, "BP upload: no stored DI tokens - login required")
-                return@withContext UploadOutcome.LoginRequired
-            }
-
-            try {
-                when (val result = remote.uploadBloodPressure(newRecords, tokens)) {
-                    is UploadResult.Success -> {
-                        bpJournal.markUploaded(newRecords)
-                        // Persist the (possibly rotated) tokens the upload actually used.
-                        tokenStore.save(result.tokens)
-                        Log.d(TAG, "BP upload: ${newRecords.size} records confirmed by Garmin")
-                        UploadOutcome.BpUploaded(newRecords)
-                    }
-                    is UploadResult.Partial -> {
-                        // Journal ONLY the provably imported records; everything
-                        // else stays retriable.
-                        val confirmedByKey = result.succeededKeys.toHashSet()
-                        val confirmed = newRecords.filter { it.bpJournalKey() in confirmedByKey }
-                        bpJournal.markUploaded(confirmed)
-                        tokenStore.save(result.tokens)
-                        UploadOutcome.BpUploaded(confirmed, result.failureMessages)
-                    }
+            bpUploadMutex.withLock {
+                val newRecords = bpJournal.filterNew(records)
+                if (newRecords.isEmpty()) {
+                    Log.d(TAG, "BP upload: journal covers every record - skipping network")
+                    return@withContext UploadOutcome.NotNeeded
                 }
-            } catch (e: GarminAuthError) {
-                Log.w(TAG, "BP upload: auth rejected (${reasonOf(e)}) - clearing stored tokens")
-                tokenStore.clear()
-                UploadOutcome.LoginRequired
-            } catch (e: GarminTooManyRequestsError) {
-                UploadOutcome.Retryable(reasonOf(e))
-            } catch (e: GarminConnectionError) {
-                UploadOutcome.Retryable(reasonOf(e))
-            } catch (e: GarminValidationError) {
-                // Defensive: the client validates before encoding; nothing was sent.
-                UploadOutcome.Retryable(reasonOf(e))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Unreachable by construction — kept so the method can never throw.
-                Log.w(TAG, "BP upload failed unexpectedly", e)
-                UploadOutcome.Retryable("Unexpected error: ${reasonOf(e)}")
+
+                val tokens = tokenStore.load()
+                if (tokens == null) {
+                    Log.d(TAG, "BP upload: no stored DI tokens - login required")
+                    return@withContext UploadOutcome.LoginRequired
+                }
+
+                try {
+                    when (val result = remote.uploadBloodPressure(newRecords, tokens)) {
+                        is UploadResult.Success -> {
+                            bpJournal.markUploaded(newRecords)
+                            // Persist the (possibly rotated) tokens the upload actually used.
+                            tokenStore.save(result.tokens)
+                            Log.d(TAG, "BP upload: ${newRecords.size} records confirmed by Garmin")
+                            UploadOutcome.BpUploaded(newRecords)
+                        }
+                        is UploadResult.Partial -> {
+                            // Journal ONLY the provably imported records; everything
+                            // else stays retriable.
+                            val confirmedByKey = result.succeededKeys.toHashSet()
+                            val confirmed = newRecords.filter { it.bpJournalKey() in confirmedByKey }
+                            bpJournal.markUploaded(confirmed)
+                            tokenStore.save(result.tokens)
+                            UploadOutcome.BpUploaded(confirmed, result.failureMessages)
+                        }
+                    }
+                } catch (e: GarminAuthError) {
+                    Log.w(TAG, "BP upload: auth rejected (${reasonOf(e)}) - clearing stored tokens")
+                    tokenStore.clear()
+                    UploadOutcome.LoginRequired
+                } catch (e: GarminTooManyRequestsError) {
+                    UploadOutcome.Retryable(reasonOf(e))
+                } catch (e: GarminConnectionError) {
+                    UploadOutcome.Retryable(reasonOf(e))
+                } catch (e: GarminValidationError) {
+                    // Defensive: the client validates before encoding; nothing was sent.
+                    UploadOutcome.Retryable(reasonOf(e))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Unreachable by construction — kept so the method can never throw.
+                    Log.w(TAG, "BP upload failed unexpectedly", e)
+                    UploadOutcome.Retryable("Unexpected error: ${reasonOf(e)}")
+                }
             }
         }
 

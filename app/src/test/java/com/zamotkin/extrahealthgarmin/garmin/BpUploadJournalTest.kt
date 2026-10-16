@@ -205,4 +205,73 @@ class BpUploadJournalTest {
             journal.filterNew(listOf(reading(1L))).map { it.timestampEpochSec }
         )
     }
+
+    // ------------------------------------------------------------------ //
+    //  Cross-instance merge-on-save (task tefal2garmin-n3q)               //
+    //  ------------------------------------------------------------------ //
+
+    /**
+     * Task tefal2garmin-n3q: a SECOND journal instance over the same
+     * persistence (e.g. a second GarminRepository built from context) holds a
+     * stale in-memory key set — its save() must not overwrite the whole
+     * bp_upload_journal.json and erase keys the first instance persisted
+     * after this one was constructed. The save path MERGES: reload the
+     * persisted set, union it with the in-memory additions, write the union.
+     *
+     * Instance A (constructed AFTER the stale one, so its save is already on
+     * disk) marks two records; the stale instance B then marks a DIFFERENT
+     * record and saves; a third instance must see BOTH key sets.
+     */
+    @Test
+    fun `stale_instance_save_merges_persisted_keys_instead_of_erasing`() {
+        val persistence = InMemoryPersistence()
+        val stale = BpUploadJournal(persistence)
+        val first = BpUploadJournal(persistence)
+
+        first.markUploaded(listOf(reading(100L), reading(200L, userSlot = 2)))
+        stale.markUploaded(listOf(reading(300L)))
+
+        val reloaded = BpUploadJournal(persistence)
+        assertEquals(
+            "merge-on-save: the stale instance's save must not erase the first instance's keys",
+            3,
+            reloaded.uploadedCount()
+        )
+        assertTrue(
+            "all three keys must survive the stale save: ${persistence.stored}",
+            reloaded.filterNew(
+                listOf(reading(100L), reading(200L, userSlot = 2), reading(300L))
+            ).isEmpty()
+        )
+    }
+
+    /**
+     * Task tefal2garmin-n3q: the merge happens on EVERY save, not only the
+     * first — two long-lived instances alternating saves never lose each
+     * other's earlier keys (each save re-reads the persisted set before
+     * writing the union).
+     */
+    @Test
+    fun `every_save_merges_alternating_instances_lose_no_keys`() {
+        val persistence = InMemoryPersistence()
+        val a = BpUploadJournal(persistence)
+        val b = BpUploadJournal(persistence)
+
+        a.markUploaded(listOf(reading(1L)))
+        b.markUploaded(listOf(reading(2L)))
+        a.markUploaded(listOf(reading(3L)))
+        b.markUploaded(listOf(reading(4L)))
+
+        val reloaded = BpUploadJournal(persistence)
+        assertEquals(
+            "all four keys must survive four alternating saves: ${persistence.stored}",
+            4,
+            reloaded.uploadedCount()
+        )
+        assertEquals(
+            "nothing may re-upload after the merge-on-save sequence",
+            emptyList<BloodPressureReading>(),
+            reloaded.filterNew(listOf(reading(1L), reading(2L), reading(3L), reading(4L)))
+        )
+    }
 }

@@ -30,6 +30,18 @@ fun BloodPressureReading.bpJournalKey(): String = "$timestampEpochSec:$userSlot"
  * implementation). All access is synchronized. A corrupted persisted journal
  * degrades to a fresh empty one with a Log.w — worst case is a
  * duplicate-detection response from Garmin, never a crash.
+ *
+ * Multi-instance story (task tefal2garmin-n3q): every save MERGES — the
+ * persisted key set is re-read from the seam and written back as the UNION
+ * with the in-memory additions, so a second journal instance holding a
+ * stale in-memory set (e.g. a second repository built from the context
+ * while one is alive) can never erase keys another instance persisted after
+ * its construction. In-memory reads ([filterNew]) still answer from the
+ * cached set — cross-instance freshness is reconciled only at construction
+ * and save time. Merge-on-save protects the journal FILE, not the upload
+ * flow: concurrent callers sharing one persistence must still serialize
+ * their filter -> upload -> journal sequence themselves (see
+ * [com.zamotkin.extrahealthgarmin.data.GarminRepository.uploadBloodPressure]).
  */
 class BpUploadJournal(private val persistence: JournalPersistence) {
 
@@ -57,7 +69,7 @@ class BpUploadJournal(private val persistence: JournalPersistence) {
     /** Marks the given records as uploaded (by composite key) and persists. */
     fun markUploaded(records: List<BloodPressureReading>) = synchronized(lock) {
         uploadedKeys += records.map { it.bpJournalKey() }
-        persist()
+        persistMerged()
     }
 
     /** Number of journaled (uploaded) records. */
@@ -68,30 +80,43 @@ class BpUploadJournal(private val persistence: JournalPersistence) {
     // ------------------------------------------------------------------ //
 
     private fun loadFromPersistence() {
-        val raw = try {
-            persistence.load()
-        } catch (e: Exception) {
-            Log.w(TAG, "BP upload journal unreadable; starting fresh", e)
-            null
-        } ?: return
+        uploadedKeys += readPersistedKeys() ?: return
+    }
+
+    /**
+     * Merge-on-save (task tefal2garmin-n3q): re-read the persisted key set
+     * and write its UNION with the in-memory additions, so a stale second
+     * instance can never overwrite away keys persisted after its
+     * construction. An unreadable or corrupted persisted state degrades to
+     * saving the in-memory set alone — same fail-open philosophy as loading.
+     */
+    private fun persistMerged() {
+        val union = (readPersistedKeys() ?: emptySet()) + uploadedKeys
         try {
-            val array = JSONArray(raw)
-            val loaded = mutableSetOf<String>()
-            for (i in 0 until array.length()) {
-                loaded += array.getString(i)
-            }
-            uploadedKeys += loaded
+            persistence.save(JSONArray(union).toString())
         } catch (e: Exception) {
-            Log.w(TAG, "Corrupted BP upload journal; starting fresh: ${e.message}")
-            uploadedKeys.clear()
+            Log.w(TAG, "BP upload journal not persisted: ${e.message}")
         }
     }
 
-    private fun persist() {
-        try {
-            persistence.save(JSONArray(uploadedKeys).toString())
+    /**
+     * Parses the persisted JSON array into a key set, or null when nothing
+     * was ever stored or the content is unreadable/corrupted (both warn and
+     * degrade, never throw).
+     */
+    private fun readPersistedKeys(): Set<String>? {
+        val raw = try {
+            persistence.load()
         } catch (e: Exception) {
-            Log.w(TAG, "BP upload journal not persisted: ${e.message}")
+            Log.w(TAG, "BP upload journal unreadable; treating as empty", e)
+            null
+        } ?: return null
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapTo(mutableSetOf()) { array.getString(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Corrupted BP upload journal; treating as empty: ${e.message}")
+            null
         }
     }
 

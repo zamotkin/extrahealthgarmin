@@ -16,6 +16,8 @@ import com.zamotkin.extrahealthgarmin.garmin.UploadJournal
 import com.zamotkin.extrahealthgarmin.garmin.UploadResult
 import com.zamotkin.extrahealthgarmin.garmin.bpJournalKey
 import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -50,10 +52,18 @@ class GarminRepositoryBpTest {
      * Zero-config-throwing remote: [uploadBloodPressure] fails the test
      * unless the test staged [bpUploadResult]/[bpUploadException]; the weight
      * path and login/MFA/logout are not under test here and fail on touch.
+     *
+     * Concurrency hook (task tefal2garmin-n3q): [bpUploadDelayMs] holds the
+     * upload in flight (real time — the repository body runs on
+     * Dispatchers.IO, virtual time does not apply there), and
+     * [recordedUploads] snapshots every batch ever handed over, recorded
+     * under a monitor so concurrent callers (the pre-fix race) are counted
+     * deterministically.
      */
     private class FakeRemote : GarminRemote {
         var bpUploadResult: UploadResult? = null
         var bpUploadException: Exception? = null
+        var bpUploadDelayMs = 0L
 
         var bpUploadCalls = 0
             private set
@@ -61,6 +71,12 @@ class GarminRepositoryBpTest {
             private set
         var lastBpTokens: GarminTokens? = null
             private set
+
+        private val uploads = mutableListOf<List<BloodPressureReading>>()
+
+        /** Every upload batch in call order — thread-safe for concurrent tests. */
+        fun recordedUploads(): List<List<BloodPressureReading>> =
+            synchronized(uploads) { uploads.toList() }
 
         override suspend fun login(email: String, password: String): LoginResult =
             throw AssertionError("login() is not under test in GarminRepositoryBpTest")
@@ -78,9 +94,13 @@ class GarminRepositoryBpTest {
             records: List<BloodPressureReading>,
             tokens: GarminTokens
         ): UploadResult {
-            bpUploadCalls++
+            synchronized(uploads) {
+                uploads += records
+                bpUploadCalls++
+            }
             lastBpRecords = records
             lastBpTokens = tokens
+            if (bpUploadDelayMs > 0) delay(bpUploadDelayMs)
             bpUploadException?.let { throw it }
             return bpUploadResult
                 ?: throw AssertionError(
@@ -396,6 +416,89 @@ class GarminRepositoryBpTest {
         assertEquals(2, bpJournal.uploadedCount())
     }
 
+    // ------------------------------------------------------------------ //
+    //  Concurrency: single-flight (task tefal2garmin-n3q)                 //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * Task tefal2garmin-n3q: two CONCURRENT uploadBloodPressure calls over
+     * the same pending batch must not race filterNew -> upload ->
+     * markUploaded into uploading the batch twice. The single-flight mutex
+     * serializes the whole sequence: the first caller uploads and journals;
+     * the second WAITS, then sees the journal already updated and answers
+     * NotNeeded with zero network. The in-flight delay is real time (the
+     * repository body runs on Dispatchers.IO), so the second caller provably
+     * arrives while the first is still uploading — before the fix both
+     * callers passed filterNew and the batch hit Garmin twice.
+     */
+    @Test
+    fun `uploadBloodPressure_concurrent_same_batch_uploads_exactly_once`() = runTest {
+        tokenStore.save(TOKENS)
+        remote.bpUploadResult = UploadResult.Success(2, TOKENS)
+        remote.bpUploadDelayMs = 500
+        val batch = listOf(reading(E1), reading(E2, userSlot = 2))
+
+        val first = async { repository.uploadBloodPressure(batch) }
+        val second = async { repository.uploadBloodPressure(batch) }
+        val outcomes = listOf(first.await(), second.await())
+
+        assertEquals(
+            "single-flight: the remote upload must execute exactly once",
+            1,
+            remote.recordedUploads().size
+        )
+        assertEquals("one caller performs the upload", 1, remote.bpUploadCalls)
+        assertEquals(
+            "one caller uploads, the other sees the journal already updated",
+            1,
+            outcomes.count { it is UploadOutcome.BpUploaded }
+        )
+        assertEquals(
+            "the waiting caller answers NotNeeded",
+            1,
+            outcomes.count { it is UploadOutcome.NotNeeded }
+        )
+        assertEquals("the winning caller journaled the whole batch", 2, bpJournal.uploadedCount())
+        assertTrue(
+            "no record may be left re-uploadable after both calls",
+            bpJournal.filterNew(batch).isEmpty()
+        )
+    }
+
+    /**
+     * Task tefal2garmin-n3q: overlapping concurrent batches — the second
+     * caller waits for the first's journal update, so a record two callers
+     * both hold is uploaded by exactly one of them; whichever caller wins
+     * the mutex is unspecified, the invariant is not: no composite key may
+     * reach the remote twice, and afterwards the journal covers everything.
+     */
+    @Test
+    fun `uploadBloodPressure_concurrent_overlapping_batches_no_record_uploaded_twice`() = runTest {
+        tokenStore.save(TOKENS)
+        remote.bpUploadResult = UploadResult.Success(3, TOKENS)
+        remote.bpUploadDelayMs = 500
+        val sharedBatch = listOf(reading(E1), reading(E2))
+        val supersetBatch = listOf(reading(E1), reading(E2), reading(E3))
+
+        val narrow = async { repository.uploadBloodPressure(sharedBatch) }
+        val wide = async { repository.uploadBloodPressure(supersetBatch) }
+        narrow.await()
+        wide.await()
+
+        val sentKeys = remote.recordedUploads().flatten().map { it.bpJournalKey() }
+        assertEquals(
+            "every record must be uploaded (the union of both batches)",
+            setOf(reading(E1).bpJournalKey(), reading(E2).bpJournalKey(), reading(E3).bpJournalKey()),
+            sentKeys.toSet()
+        )
+        assertEquals(
+            "no composite key may reach the remote twice: $sentKeys",
+            sentKeys.size,
+            sentKeys.toSet().size
+        )
+        assertEquals("the journal covers every record of both batches", 3, bpJournal.uploadedCount())
+    }
+
     companion object {
         private val TOKENS = GarminTokens(
             diToken = "jwt-access",
@@ -406,5 +509,6 @@ class GarminRepositoryBpTest {
         // Distinct measurement epochs (arbitrary UTC seconds, one day apart).
         private const val E1 = 1_761_350_400L
         private const val E2 = E1 + 86_400L
+        private const val E3 = E2 + 86_400L
     }
 }
