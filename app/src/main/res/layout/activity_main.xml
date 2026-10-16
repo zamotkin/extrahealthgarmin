@@ -91,4 +91,16 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Omron blood-pressure entry point (epic tefal2garmin-939): opens the
+         Compose OmronActivity (transfer / readings / settings). -->
+    <Button
+        android:id="@+id/omronButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:text="@string/omron_open"
+        app:layout_constraintTop_toBottomOf="@id/syncNowButton"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

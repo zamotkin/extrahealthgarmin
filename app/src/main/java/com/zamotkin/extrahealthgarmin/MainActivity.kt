@@ -23,6 +23,7 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.Observer
 import com.zamotkin.extrahealthgarmin.health.SyncWorker
+import com.zamotkin.extrahealthgarmin.ui.omron.OmronActivity
 import com.zamotkin.extrahealthgarmin.ui.GarminUploadStatus
 import com.zamotkin.extrahealthgarmin.ui.MainUiState
 import com.zamotkin.extrahealthgarmin.ui.MainViewModel
@@ -48,6 +49,13 @@ class MainActivity : AppCompatActivity() {
          * with the privacy-policy dialog instead of doing nothing extra.
          */
         const val EXTRA_HEALTH_PERMISSIONS_RATIONALE = "health_permissions_rationale"
+
+        /**
+         * Launch extra asking MainActivity to open the Garmin login dialog
+         * right away — set by the Omron screen's "Sign in to Garmin again"
+         * entry (the login dialog state machine lives here).
+         */
+        const val EXTRA_SHOW_GARMIN_LOGIN = "show_garmin_login"
 
         /**
          * Health Connect provider package — the Play Store link target and
@@ -120,6 +128,12 @@ class MainActivity : AppCompatActivity() {
         if (intent?.getBooleanExtra(EXTRA_HEALTH_PERMISSIONS_RATIONALE, false) == true) {
             showPrivacyPolicyDialog()
         }
+
+        // Re-login entry from the Omron blood-pressure screen: land on the
+        // home screen with the Garmin login dialog already open.
+        if (intent?.getBooleanExtra(EXTRA_SHOW_GARMIN_LOGIN, false) == true) {
+            showLoginDialog()
+        }
     }
 
     override fun onResume() {
@@ -152,6 +166,12 @@ class MainActivity : AppCompatActivity() {
         syncNowButton = findViewById(R.id.syncNowButton)
 
         syncNowButton.setOnClickListener { viewModel.syncNow() }
+
+        // Omron blood-pressure entry point (epic tefal2garmin-939): opens
+        // the Compose OmronActivity (transfer / readings / settings).
+        findViewById<Button>(R.id.omronButton).setOnClickListener {
+            startActivity(Intent(this, OmronActivity::class.java))
+        }
 
         // Debug-only live-spike trigger for the Garmin DI OAuth2 auth client
         // (task garmin-api-import-j5e.1): hidden long-press on
@@ -199,7 +219,7 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
-            topToBottom = syncNowButton.id
+            topToBottom = R.id.omronButton
             startToStart = ConstraintLayout.LayoutParams.PARENT_ID
             endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
             topMargin = dp(16)
