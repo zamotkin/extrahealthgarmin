@@ -93,6 +93,10 @@ class GattChannelTransport(
                 SessionFrameCodec.parseFrame(reassembled)
             } catch (e: FrameCrcException) {
                 null   // corrupt response - retry the whole command
+            } catch (e: IllegalArgumentException) {
+                null   // malformed framing - retryable, i8b
+            } catch (e: IndexOutOfBoundsException) {
+                null   // garbled reassembly - retryable, i8b
             }
         }
     }
@@ -112,7 +116,8 @@ class GattChannelTransport(
     /**
      * Collects RX channel units until the channels starting at RX 0 carry at
      * least as many bytes as the frame size byte announces, then reassembles
-     * them in channel order.
+     * them in channel order. Zero-length units are skipped: an empty first
+     * unit would blow up on the size-byte read below (task tefal2garmin-983, i8a).
      */
     private suspend fun awaitResponseChunks(): ByteArray? {
         val unitsByChannel = HashMap<Int, ByteArray>()
@@ -120,6 +125,7 @@ class GattChannelTransport(
             val notification = notifications.receive()
             val channelIndex = OmronProtocol.RX_CHANNEL_UUIDS.indexOf(notification.uuid)
             if (channelIndex < 0) continue
+            if (notification.bytes.isEmpty()) continue
             unitsByChannel.putIfAbsent(channelIndex, notification.bytes)
 
             val first = unitsByChannel[0] ?: continue
@@ -136,7 +142,20 @@ class GattChannelTransport(
         }
     }
 
-    /** Drops notifications left over from a previous (timed-out) command cycle. */
+    /**
+     * Drops notifications left over from a previous (timed-out) command cycle.
+     *
+     * Known bounded race, accepted (task tefal2garmin-983, i9): a late RX unit
+     * that belonged to the timed-out command but arrives AFTER this drain is
+     * consumed by the next attempt's [awaitResponseChunks] and can poison its
+     * reassembly via the channel-order putIfAbsent. The blast radius is capped:
+     * a poisoned attempt only wastes one command, the retry budget then
+     * exhausts, OmronSession's finally-end is already best-effort, and
+     * [OmronBleClient] closes the GATT connection immediately on every failure
+     * path, so no further command shares the channel. A generation counter
+     * would not close the window (units are stamped at arrival, not at
+     * transmission), hence documented rather than guarded.
+     */
     private fun drainNotifications() {
         while (notifications.tryReceive().isSuccess) { /* drop */ }
     }

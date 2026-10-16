@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
 /**
@@ -126,9 +127,12 @@ class OmronGattConnection private constructor(
 
     private val opMutex = Mutex()
 
-    /** Set while a single write-with-response is in flight; transport-level serialization means one at a time. */
-    private var pendingWrite: CompletableDeferred<Int>? = null
-    private val pendingLock = Any()
+    /**
+     * The single write-with-response slot; transport-level serialization means
+     * one at a time. Extracted (task tefal2garmin-983) so cancellation cleanup
+     * is unit-tested in [PendingWriteSlot].
+     */
+    private val pendingWriteSlot = PendingWriteSlot(GATT_OP_TIMEOUT_MS)
 
     private var gatt: BluetoothGatt? = null
     private val characteristics = HashMap<String, BluetoothGattCharacteristic>()
@@ -165,7 +169,7 @@ class OmronGattConnection private constructor(
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            completePendingWrite(status)
+            pendingWriteSlot.complete(status)
         }
 
         override fun onCharacteristicWrite(
@@ -173,7 +177,7 @@ class OmronGattConnection private constructor(
             characteristic: BluetoothGattCharacteristic,
             status: Int,
         ) {
-            completePendingWrite(status)
+            pendingWriteSlot.complete(status)
         }
 
         @Suppress("DEPRECATION")
@@ -195,14 +199,17 @@ class OmronGattConnection private constructor(
     // ------------------------------------------------------------------ //
 
     private suspend fun connectGattAndDiscover() {
-        val gatt = device.connectGatt(context, false, gattCallback)
-            ?: throw OmronBleException("connectGatt returned null for ${device.address}")
-        this.gatt = gatt
+        // Deferreds are registered BEFORE connectGatt: the binder thread can call
+        // onConnectionStateChange synchronously-fast, and a null deferred would
+        // drop the callback into a 15 s timeout (task tefal2garmin-983, m4).
+        val connected = CompletableDeferred<Unit>()
+        val services = CompletableDeferred<Unit>()
+        connectResult = connected
+        servicesResult = services
         try {
-            val connected = CompletableDeferred<Unit>()
-            val services = CompletableDeferred<Unit>()
-            connectResult = connected
-            servicesResult = services
+            val gatt = device.connectGatt(context, false, gattCallback)
+                ?: throw OmronBleException("connectGatt returned null for ${device.address}")
+            this.gatt = gatt
             withTimeoutOrNull(CONNECT_TIMEOUT_MS) { connected.await() }
                 ?: throw GattTimeoutException("connect", "GATT connect timed out after ${CONNECT_TIMEOUT_MS}ms")
             if (!gatt.discoverServices()) {
@@ -316,41 +323,20 @@ class OmronGattConnection private constructor(
     }
 
     /**
-     * Registers [pendingWrite], invokes [invoke] (the actual GATT call) and awaits
-     * the callback's status. Clears the pending slot on every failure path so a
-     * later operation cannot deadlock on a stale deferred.
+     * Registers the pending write, invokes [invoke] (the actual GATT call) and
+     * awaits the callback's status. All slot cleanup — including external
+     * cancellation of the awaiting coroutine — lives in [PendingWriteSlot]
+     * (task tefal2garmin-983, M1).
      */
     private suspend fun awaitWriteStatus(what: String, invoke: () -> Unit) {
-        val deferred = beginPendingWrite()
-        try {
-            invoke()
-        } catch (t: Throwable) {
-            failAllPending(OmronBleException("$what could not be started: ${t.message}"))
-            throw t
-        }
-        val status = withTimeoutOrNull(GATT_OP_TIMEOUT_MS) { deferred.await() }
-        if (status == null) {
-            failAllPending(GattTimeoutException(what, "$what timed out after ${GATT_OP_TIMEOUT_MS}ms"))
-            throw GattTimeoutException(what, "$what timed out after ${GATT_OP_TIMEOUT_MS}ms")
-        }
+        val status = pendingWriteSlot.awaitStatus(what, invoke)
         if (status != BluetoothGatt.GATT_SUCCESS) {
             throw GattStatusException(status, what)
         }
     }
 
-    private fun beginPendingWrite(): CompletableDeferred<Int> = synchronized(pendingLock) {
-        check(pendingWrite == null) { "concurrent GATT writes - serialization violated" }
-        CompletableDeferred<Int>().also { pendingWrite = it }
-    }
-
-    private fun completePendingWrite(status: Int) {
-        val deferred = synchronized(pendingLock) { pendingWrite.also { pendingWrite = null } }
-        deferred?.complete(status)
-    }
-
     private fun failAllPending(t: Throwable) {
-        val write = synchronized(pendingLock) { pendingWrite.also { pendingWrite = null } }
-        write?.completeExceptionally(t)
+        pendingWriteSlot.fail(t)
         connectResult?.completeExceptionally(t)
         servicesResult?.completeExceptionally(t)
     }
@@ -392,9 +378,29 @@ class OmronGattConnection private constructor(
         }
     }
 
-    /** true once BOND_BONDED is broadcast; false if pairing collapses back to BOND_NONE. */
+    /**
+     * true once BOND_BONDED is broadcast; false if pairing collapses back to BOND_NONE.
+     *
+     * The receiver is unregistered on EVERY exit path — bond broadcast, tail
+     * bond-state check and cancellation — guarded by an atomic once-flag
+     * (task tefal2garmin-983, M2/m7): the tail check runs on the awaiting
+     * coroutine's thread while broadcasts arrive on the main thread, and the
+     * previously registration-only cleanup leaked one receiver per bond wait
+     * whenever a broadcast resumed the continuation first.
+     */
     private suspend fun awaitBonded(): Boolean = suspendCancellableCoroutine { continuation ->
-        val receiver = object : BroadcastReceiver() {
+        lateinit var receiver: BroadcastReceiver
+        val finished = AtomicBoolean(false)
+
+        // Exactly-once: resumes (at most once) and unregisters the receiver,
+        // whichever of the three exit paths gets there first.
+        fun finish(outcome: Boolean) {
+            if (!finished.compareAndSet(false, true)) return
+            runCatching { context.unregisterReceiver(receiver) }
+            if (continuation.isActive) continuation.resume(outcome)
+        }
+
+        receiver = object : BroadcastReceiver() {
             override fun onReceive(receiverContext: Context?, intent: Intent?) {
                 if (intent?.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
                 val bondedDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -405,10 +411,8 @@ class OmronGattConnection private constructor(
                 }
                 if (bondedDevice?.address != device.address) return
                 when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)) {
-                    BluetoothDevice.BOND_BONDED ->
-                        if (continuation.isActive) continuation.resume(true)
-                    BluetoothDevice.BOND_NONE ->
-                        if (continuation.isActive) continuation.resume(false)
+                    BluetoothDevice.BOND_BONDED -> finish(true)
+                    BluetoothDevice.BOND_NONE -> finish(false)
                 }
             }
         }
@@ -418,9 +422,15 @@ class OmronGattConnection private constructor(
             IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
-        continuation.invokeOnCancellation { context.unregisterReceiver(receiver) }
-        if (device.bondState == BluetoothDevice.BOND_BONDED && continuation.isActive) {
-            continuation.resume(true)
+        continuation.invokeOnCancellation {
+            if (finished.compareAndSet(false, true)) {
+                runCatching { context.unregisterReceiver(receiver) }
+            }
+        }
+        // Post-registration tail check: the bond may have completed while we
+        // were registering (also closes the receiver-vs-tail double-resume window).
+        if (device.bondState == BluetoothDevice.BOND_BONDED) {
+            finish(true)
         }
     }
 }

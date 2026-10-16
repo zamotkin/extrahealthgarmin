@@ -41,6 +41,9 @@ class GattChannelTransportTest {
         private var commandBytesSeen = 0
         private var commandTotal = -1
 
+        /** When set, one zero-length unit is delivered on RX 0 before the next response. */
+        var emitEmptyUnitBeforeResponse = false
+
         override suspend fun enableNotifications() {
             enableNotificationsCalls++
         }
@@ -70,6 +73,10 @@ class GattChannelTransportTest {
 
         private fun deliverOnRxChannels(response: ByteArray?) {
             if (response == null) return
+            if (emitEmptyUnitBeforeResponse) {
+                emitEmptyUnitBeforeResponse = false
+                handler?.invoke(OmronProtocol.RX_CHANNEL_UUIDS[0], ByteArray(0))
+            }
             val units = response.toList().chunked(OmronProtocol.CHANNEL_CHUNK_BYTES) { it.toByteArray() }
             units.forEachIndexed { index, unit ->
                 handler?.invoke(OmronProtocol.RX_CHANNEL_UUIDS[index], unit)
@@ -219,6 +226,100 @@ class GattChannelTransportTest {
             fail("expected IllegalArgumentException")
         } catch (expected: IllegalArgumentException) {
             assertTrue(expected.message!!.contains("channels"))
+        }
+    }
+
+    // ------------------------------------------------------------------ //
+    //  task tefal2garmin-983 remediation tests                            //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `zero-length rx notification is skipped and the command still succeeds`() = runTest {
+        val command = SessionFrameCodec.SESSION_START_FRAME
+        val response = responseFrame(OmronProtocol.RESP_SESSION_START, 0x0000, ByteArray(0))
+        val fake = FakeConnection(
+            commandResponses = ArrayDeque(listOf(response)),
+            unlockResponses = ArrayDeque(),
+        )
+        fake.emitEmptyUnitBeforeResponse = true   // i8a: empty unit ahead of the real first unit
+        val transport = GattChannelTransport(fake)
+
+        val parsed = transport.writeCommand(command.copyOf())
+
+        assertEquals(OmronProtocol.RESP_SESSION_START, parsed.type)
+    }
+
+    @Test
+    fun `malformed framing is retried and then succeeds`() = runTest {
+        val command = SessionFrameCodec.SESSION_START_FRAME
+        val good = responseFrame(OmronProtocol.RESP_SESSION_START, 0x0000, ByteArray(0))
+        // i8b: size byte claims one byte more than carried -> parseFrame's
+        // require() fires (IllegalArgumentException) before any CRC check
+        val malformed = good.copyOf().also { it[0] = (it.size + 1).toByte() }
+        val fake = FakeConnection(
+            commandResponses = ArrayDeque(listOf(malformed, good)),
+            unlockResponses = ArrayDeque(),
+        )
+        val transport = GattChannelTransport(fake)
+
+        val parsed = transport.writeCommand(command.copyOf())
+
+        assertEquals(OmronProtocol.RESP_SESSION_START, parsed.type)
+        assertEquals(2, fake.txWrites.size)   // malformed attempt + retry
+    }
+
+    /**
+     * M1 through the transport seam: the fake mirrors OmronGattConnection's
+     * write serialization via the real [PendingWriteSlot]. Attempt 1 hangs
+     * (write accepted, callback never arrives); RetryCommandRunner cancels it
+     * at its 1 s attempt timeout. Attempt 2 must NOT be rejected by the
+     * "concurrent GATT writes" guard left stale by the cancellation.
+     */
+    @Test
+    fun `retry after a cancelled hung write does not hit the serialization guard`() = runTest {
+        val response = responseFrame(OmronProtocol.RESP_SESSION_START, 0x0000, ByteArray(0))
+        val fake = SlotEmulatingConnection(ArrayDeque(listOf(response)))
+        val transport = GattChannelTransport(fake)
+
+        val parsed = transport.writeCommand(SessionFrameCodec.SESSION_START_FRAME.copyOf())
+
+        assertEquals(OmronProtocol.RESP_SESSION_START, parsed.type)
+        assertEquals(2, fake.writes)   // the hung attempt + the successful retry
+    }
+
+    /** Faithful mirror of OmronGattConnection's write path: one write at a time via [PendingWriteSlot]. */
+    private class SlotEmulatingConnection(
+        val commandResponses: ArrayDeque<ByteArray?>,
+    ) : GattChannelConnection {
+        val slot = PendingWriteSlot(timeoutMs = 60_000)   // the RETRY timeout must win, not the slot's own
+        var writes = 0
+        var handler: ((uuid: String, bytes: ByteArray) -> Unit)? = null
+
+        override suspend fun enableNotifications() { /* not under test */ }
+
+        override suspend fun writeCharacteristic(uuid: String, payload: ByteArray): Boolean {
+            val status = slot.awaitStatus("write test") {
+                writes++
+                if (writes == 1) {
+                    // first attempt: GATT accepts the write but the device never responds
+                } else {
+                    slot.complete(0)
+                    deliver(commandResponses.removeFirstOrNull())
+                }
+            }
+            return status == 0
+        }
+
+        override fun onChannelData(handler: (uuid: String, bytes: ByteArray) -> Unit) {
+            this.handler = handler
+        }
+
+        private fun deliver(response: ByteArray?) {
+            if (response == null) return
+            val units = response.toList().chunked(OmronProtocol.CHANNEL_CHUNK_BYTES) { it.toByteArray() }
+            units.forEachIndexed { index, unit ->
+                handler?.invoke(OmronProtocol.RX_CHANNEL_UUIDS[index], unit)
+            }
         }
     }
 }

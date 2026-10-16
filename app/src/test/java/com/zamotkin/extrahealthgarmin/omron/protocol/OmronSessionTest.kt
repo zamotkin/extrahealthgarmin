@@ -142,9 +142,11 @@ class OmronSessionTest {
         )
         try {
             OmronSession.readOut(transport, key, userSlot = 1)
-            fail("expected OmronSessionException for rejected unlock")
-        } catch (e: OmronSessionException) {
-            // expected: key mismatch / not registered
+            fail("expected UnlockRejectedException for rejected unlock")
+        } catch (e: UnlockRejectedException) {
+            // typed signal (task tefal2garmin-983): the BLE layer maps this onto AuthFailed
+            assertTrue(e.message!!.startsWith("unlock rejected"))
+            assertTrue(e is OmronSessionException)
         }
         assertEquals(0, transport.commandWrites.size)
     }

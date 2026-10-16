@@ -8,6 +8,8 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.zamotkin.extrahealthgarmin.omron.protocol.OmronSession
 import com.zamotkin.extrahealthgarmin.omron.protocol.OmronSessionException
+import com.zamotkin.extrahealthgarmin.omron.protocol.UnlockRejectedException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -24,17 +26,15 @@ object OmronBleClient {
 
     private const val TAG = "OmronBleClient"
 
-    /** Prefix of OmronSession's unlock-rejection message - maps to AuthFailed. */
-    private const val UNLOCK_REJECTED = "unlock rejected"
-
     suspend fun readNewRecords(
         context: Context,
         key: ByteArray,
         userSlot: Int,
     ): OmronBleResult = withContext(Dispatchers.IO) {
-        if (!hasRequiredPermissions(context)) {
+        val missing = missingPermissions(context)
+        if (missing.isNotEmpty()) {
             return@withContext OmronBleResult.Failed(
-                "Missing Bluetooth permissions - grant Nearby devices for this app",
+                "Missing permissions for Bluetooth: ${missing.joinToString()} - grant them for this app",
             )
         }
         var connection: OmronGattConnection? = null
@@ -44,25 +44,9 @@ object OmronBleClient {
             transport.initialize()
             val result = OmronSession.readOut(transport, key, userSlot)
             OmronBleResult.Success(result.readings)
-        } catch (e: BondingRequiredException) {
-            log("bonding required", e)
-            OmronBleResult.BondingRequired(e.message ?: "Bluetooth bonding with the monitor is required")
-        } catch (e: GattDisconnectedException) {
-            log("disconnected (state: ${e.state})", e)
-            OmronBleResult.Disconnected(e.message ?: e.state)
-        } catch (e: GattTimeoutException) {
-            log("timed out (state: ${e.state})", e)
-            OmronBleResult.Timeout(e.message ?: e.state)
-        } catch (e: OmronSessionException) {
-            log("session failed", e)
-            if (e.message?.startsWith(UNLOCK_REJECTED) == true) {
-                OmronBleResult.AuthFailed(e.message!!)
-            } else {
-                OmronBleResult.Failed(e.message ?: "session failed")
-            }
         } catch (e: Exception) {
-            log("BLE read failed", e)
-            OmronBleResult.Failed(e.message ?: e.javaClass.simpleName)
+            if (e !is CancellationException) log(labelFor(e), e)
+            mapCaughtFailure(e)
         } finally {
             connection?.close()
         }
@@ -71,13 +55,61 @@ object OmronBleClient {
     private fun log(what: String, e: Exception) {
         Log.w(TAG, "readNewRecords: $what - ${e.message}")
     }
+}
 
-    /** BLUETOOTH_SCAN/CONNECT are runtime permissions on Android 12+; below that they are install-time. */
-    private fun hasRequiredPermissions(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
-            PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
-            PackageManager.PERMISSION_GRANTED
+/**
+ * The runtime permissions a BLE readout needs at API level [sdkInt]
+ * (task tefal2garmin-983, M3): BLUETOOTH_SCAN + BLUETOOTH_CONNECT on
+ * Android 12+; below that (minSdk 26..30) ACCESS_FINE_LOCATION - a dangerous
+ * permission with a runtime grant required since API 23, without which BLE
+ * scans silently return empty results. Pure function - unit-tested.
+ */
+internal fun requiredBlePermissions(sdkInt: Int): List<String> =
+    if (sdkInt >= Build.VERSION_CODES.S) {
+        listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+    } else {
+        listOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
+
+/**
+ * Permissions from [requiredBlePermissions] that [context] has NOT granted;
+ * empty means the readout may start. Public so the UI layer can request
+ * exactly what is missing before calling [OmronBleClient.readNewRecords]
+ * (task tefal2garmin-983, M3). Android-bound - the decision logic itself
+ * lives in the pure [requiredBlePermissions].
+ */
+fun missingPermissions(context: Context): List<String> =
+    requiredBlePermissions(Build.VERSION.SDK_INT).filter {
+        ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+    }
+
+/**
+ * Short log label for a caught failure. Pure - mirrors [mapCaughtFailure]
+ * for the logging side (task tefal2garmin-983).
+ */
+internal fun labelFor(e: Exception): String = when (e) {
+    is UnlockRejectedException -> "unlock rejected"
+    is BondingRequiredException -> "bonding required"
+    is GattDisconnectedException -> "disconnected (state: ${e.state})"
+    is GattTimeoutException -> "timed out (state: ${e.state})"
+    is OmronSessionException -> "session failed"
+    else -> "BLE read failed"
+}
+
+/**
+ * Maps one caught failure onto [OmronBleResult] (task tefal2garmin-983).
+ * Rethrows [CancellationException] first - a cancelled scope must propagate,
+ * never surface as Failed (same hygiene as omron/data). Unlock rejection is
+ * recognized by the typed [UnlockRejectedException], not message text.
+ * Pure function - unit-tested.
+ */
+internal fun mapCaughtFailure(e: Exception): OmronBleResult = when (e) {
+    is CancellationException -> throw e
+    is UnlockRejectedException -> OmronBleResult.AuthFailed(e.message ?: "unlock rejected")
+    is BondingRequiredException ->
+        OmronBleResult.BondingRequired(e.message ?: "Bluetooth bonding with the monitor is required")
+    is GattDisconnectedException -> OmronBleResult.Disconnected(e.message ?: e.state)
+    is GattTimeoutException -> OmronBleResult.Timeout(e.message ?: e.state)
+    is OmronSessionException -> OmronBleResult.Failed(e.message ?: "session failed")
+    else -> OmronBleResult.Failed(e.message ?: e.javaClass.simpleName)
 }
