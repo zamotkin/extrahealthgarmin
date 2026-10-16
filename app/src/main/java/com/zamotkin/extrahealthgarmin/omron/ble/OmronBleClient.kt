@@ -18,9 +18,9 @@ import kotlinx.coroutines.withContext
  * key, run the EEPROM session, and fold every failure into [OmronBleResult].
  * The GATT connection is closed on every exit path (try/finally).
  *
- * The pairing key arrives as a parameter - Keystore-backed key storage is a
- * separate task. Everything runs on Dispatchers.IO; the BLE code never
- * touches UI state.
+ * The pairing key arrives as a parameter; [OmronKeyStore] provides the
+ * Keystore-backed storage (16 bytes, AES at rest). Everything runs on
+ * Dispatchers.IO; the BLE code never touches UI state.
  */
 object OmronBleClient {
 

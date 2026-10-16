@@ -78,6 +78,12 @@ object OmronProtocol {
     const val SETTINGS_WRITE_ADDRESS = 0x0054
     const val UNREAD_COUNTER_RESET_CODE = 0x8000
 
+    /** Offset of the unread-info section inside the settings block (spec §5). */
+    const val UNREAD_SECTION_OFFSET = 0x00
+
+    /** Size of the unread-info section: settings[0x00, 0x10) — 16 bytes. */
+    const val UNREAD_SECTION_SIZE = 0x10
+
     /** User slot record regions, indexed by (userSlot - 1). */
     val USER_RECORD_ADDRESSES: IntArray = intArrayOf(USER1_RECORDS_ADDRESS, USER2_RECORDS_ADDRESS)
 

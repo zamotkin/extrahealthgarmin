@@ -41,8 +41,7 @@ interface OmronTransport {
  */
 object OmronSession {
 
-    private const val UNREAD_SECTION_OFFSET = 0x00
-    private const val UNREAD_SECTION_SIZE = 0x10   // 16 bytes: counters in [0:8], rest device data
+    // Section geometry lives in OmronProtocol (amend-the-spec-first contract).
 
     data class ReadOutResult(
         val readings: List<BloodPressureReading>,
@@ -76,11 +75,11 @@ object OmronSession {
             // 3. unread-info section @0x0010 (spec §5.1)
             val settings = transport.writeCommand(
                 SessionFrameCodec.buildReadCommand(
-                    OmronProtocol.SETTINGS_READ_ADDRESS + UNREAD_SECTION_OFFSET,
-                    UNREAD_SECTION_SIZE,
+                    OmronProtocol.SETTINGS_READ_ADDRESS + OmronProtocol.UNREAD_SECTION_OFFSET,
+                    OmronProtocol.UNREAD_SECTION_SIZE,
                 ),
             )
-            if (settings.type != OmronProtocol.RESP_READ || settings.data.size != UNREAD_SECTION_SIZE) {
+            if (settings.type != OmronProtocol.RESP_READ || settings.data.size != OmronProtocol.UNREAD_SECTION_SIZE) {
                 throw OmronSessionException("unexpected settings read response: type=${settings.type.toString(16)} bytes=${settings.data.size}")
             }
 
@@ -103,7 +102,7 @@ object OmronSession {
             val reset = calculator.resetUnreadCounters(settings.data)
             val resetResponse = transport.writeCommand(
                 SessionFrameCodec.buildWriteCommand(
-                    OmronProtocol.SETTINGS_WRITE_ADDRESS + UNREAD_SECTION_OFFSET,
+                    OmronProtocol.SETTINGS_WRITE_ADDRESS + OmronProtocol.UNREAD_SECTION_OFFSET,
                     reset,
                 ),
             )

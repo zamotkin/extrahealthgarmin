@@ -51,9 +51,13 @@ class ReadPlanCalculator {
     fun resetUnreadCounters(section: ByteArray): ByteArray {
         require(section.size >= 8) { "unread info section must be at least 8 bytes" }
         val copy = section.copyOf()
-        // LE 0x8000 = bytes 0x00, 0x80; fields at [4:6] and [6:8]
-        copy[4] = 0x00; copy[5] = 0x80.toByte()
-        copy[6] = 0x00; copy[7] = 0x80.toByte()
+        // Both users' unread fields ([4:6] and [6:8]) get the LE-encoded
+        // "no new records" code — derived from the spec constant, never inline.
+        val code = OmronProtocol.UNREAD_COUNTER_RESET_CODE
+        val low = (code and 0xFF).toByte()
+        val high = (code shr 8).toByte()
+        copy[4] = low; copy[5] = high
+        copy[6] = low; copy[7] = high
         return copy
     }
 
