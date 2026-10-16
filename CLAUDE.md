@@ -26,7 +26,9 @@ Extra Health Garmin syncs body-composition weigh-ins from **Health Connect** int
 MVVM: `MainActivity` → `MainViewModel` (LiveData<`MainUiState`>) → `HealthSyncFacade` → `SyncEngine` →
 `GarminRepository.uploadNewRecords` → `GarminUploadClient` (FIT upload via `FitWeightFileBuilder`).
 No DI framework — wiring is manual in `HealthSyncWiring.facade` / `MainViewModelFactory`. Single
-activity, no fragments; views via `findViewById`.
+activity, no fragments; views via `findViewById`. A second pipeline reads blood-pressure readings
+over BLE from an Omron monitor into a Room database and uploads them to Garmin Connect as one
+`blood_pressure.fit` batch.
 
 Packages under `app/src/main/java/com/zamotkin/extrahealthgarmin/`:
 
@@ -39,19 +41,42 @@ Packages under `app/src/main/java/com/zamotkin/extrahealthgarmin/`:
   (Idle/Uploaded/PartialUploaded/Retryable/LoginRequired). `SyncWorker` is the WorkManager ~3-hourly
   periodic pass over the same engine (network-constrained, exponential backoff; only Retryable asks
   WorkManager to retry). `HealthPermissions` pins the permission set mirrored in the manifest.
+- `omron/protocol/` — pure-JVM wire protocol for the Omron M7 Intelli IT monitor
+  (`docs/omron-protocol.md` is the spec). `SessionFrameCodec` builds/parses the XOR-CRC session
+  frames; `RecordDecoder` unpacks bit-packed 16-byte EEPROM records (systolic = raw bits + 25);
+  `UnlockCodec` frames the 17-byte unlock payloads; `ReadPlanCalculator` turns the ring-buffer
+  counters into read commands; `OmronSession` orchestrates the readout over the `OmronTransport`
+  seam; every constant lives in `OmronProtocol`.
+- `omron/ble/` — the Android BLE side. `GattChannelTransport` implements `OmronTransport` with
+  16-byte channel chunking over the `GattChannelConnection` seam; `RetryCommandRunner` retries
+  each command 5x under a 1s timeout; `OmronGattConnection` is the only file touching
+  `android.bluetooth` (connect/GATT glue; `gatt.close()` on every exit path); `OmronBleClient`
+  folds the readout into `OmronBleResult`. The 16-byte pairing key lives in `OmronKeyStore`,
+  AES-encrypted by `KeystoreAesPairingKeyCrypto` (Android Keystore, alias
+  `extrahealthgarmin_omron_pairing_key` — the `TokenCrypto` counterpart).
+- `omron/data/` — the only Room in the app, scoped to `omron/`. `BloodPressureRecordEntity`
+  carries the unique (timestamp, userSlot) index that makes device re-reads idempotent;
+  `BloodPressureDao` is the interface seam unit tests fake; `OmronBpRepository` is the
+  never-throws gateway; `BpSyncCoordinator` marks records synced only after the upload confirmed
+  them.
 - `garmin/` — the Garmin side. `GarminAuthClient` implements DI OAuth2 login with MFA resume
   (garth/python-garminconnect wire contract); tokens live in `GarminTokenStore`, AES-encrypted by
   `TokenCrypto` (Android Keystore, alias `extrahealthgarmin_di_tokens`). `FitWeightFileBuilder`
   encodes weigh-ins into a FIT weight_scale file (official Garmin FIT SDK); `GarminUploadClient`
-  uploads it; `UploadJournal` is the timestamp dedup journal; `RedactingHttpLogger` keeps secrets out
-  of debug logs (inactive in release).
+  uploads it; `UploadJournal` is the timestamp dedup journal; `FitBloodPressureFileBuilder`
+  encodes blood-pressure readings into a FIT blood_pressure file; `BpUploadJournal` is the
+  composite-key (timestamp, userSlot) dedup journal with merge-on-save; `RedactingHttpLogger`
+  keeps secrets out of debug logs (inactive in release).
 - `data/` — `GarminRepository` (`GarminUploadOrchestrator`): the UI-facing gateway that dedups
   against the journal, uploads new records as one batch and reports `UploadOutcome`; never throws.
+  `uploadBloodPressure` is the Omron-side entry point — a single-flight `Mutex` serializes
+  filter → upload → journal so concurrent callers cannot double-upload.
 - `ui/` — `MainViewModel` + factory.
 
 State is deliberately one JSON file in `filesDir` (`hc-sync-state.json`, see `SyncStateStore`):
 changes token, last-sync instant, processed-record-id dedup set, cached height. Atomic writes
-(temp file + rename). No Room, no DataStore.
+(temp file + rename). No DataStore — the only Room in the app is the Omron blood-pressure
+database in `omron/data/`.
 
 ### Main flow
 
@@ -76,7 +101,11 @@ changes token, last-sync instant, processed-record-id dedup set, cached height. 
   root `build.gradle` `plugins {}` block — no `buildscript {}` classpath. AGP 9 compiles Kotlin via
   its built-in Kotlin support, so `org.jetbrains.kotlin.android` is not applied anywhere and
   Kotlin's `jvmTarget` defaults to `compileOptions.targetCompatibility` (Java 11, required by
-  work-runtime 2.12.0's inline functions). `gradle.properties` keeps only `android.useAndroidX`,
+  work-runtime 2.12.0's inline functions). Room's compiler runs via KSP (`com.google.devtools.ksp`
+  2.3.12 — 2.3.10+ carries the AGP built-in-Kotlin support; kapt is not an option without
+  `org.jetbrains.kotlin.android`). Compose rides `org.jetbrains.kotlin.plugin.compose` 2.2.10,
+  which must equal AGP's embedded KGP version, on `compose-bom` 2026.06.01 (newer BOMs already
+  require compileSdk 37). `gradle.properties` keeps only `android.useAndroidX`,
   `org.gradle.jvmargs` and `android.enableResourceOptimizations=false` (the latter keeps the
   adaptive launcher icon rendering on API 37).
 - JSpecify-era API notes: AndroidX dependencies are migrating to JSpecify nullness annotations —
@@ -84,7 +113,8 @@ changes token, last-sync instant, processed-record-id dedup set, cached height. 
   suppressing.
 - Changes to sync logic, aggregation, FIT encoding or auth must come with a unit test — the suite
   mirrors the packages, one test class per production class in
-  `app/src/test/java/com/zamotkin/extrahealthgarmin/` (`health/`, `garmin/`, `data/`, `ui/`).
+  `app/src/test/java/com/zamotkin/extrahealthgarmin/` (`health/`, `garmin/`, `data/`, `ui/`,
+  `omron/`).
 
 ## Tools: when to use what
 
