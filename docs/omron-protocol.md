@@ -62,8 +62,10 @@ purpose unknown (§10).
 ### 1.3 Advertising & standard-profile observations `[CAPTURE]`
 
 - The device advertises ONLY when woken (transfer button held or a measurement taken); there is
-  no idle advertising. Advertised name: `BLESmart_0000025B00FBF9900BB` — the hex suffix embeds
-  the device's public BD address (cite the name suffix, never the address itself).
+  no idle advertising. Advertised name: `BLESmart_<8-hex model prefix><12-hex serial>` — the
+  12-hex serial segment IS the device's public BD address, so the concrete name is redacted
+  here per the §9.5 rule (scan the device to learn it; the BLE client should match on the
+  `0x1810` service UUID, not on the name).
 - Primary ADV payload: flags `0x06`, TxPower `0 dBm`, complete 16-bit service list `0x1810`,
   manufacturer data `0bff0e020101f000 64720264`; interleaved with an Apple-frame beacon ADV
   (`1aff4c000215` + proximity UUID `7a516657-1203-422c-bbe1-14f650a6c13d`).
