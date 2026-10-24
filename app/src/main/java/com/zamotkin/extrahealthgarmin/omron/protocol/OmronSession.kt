@@ -33,7 +33,7 @@ interface OmronTransport {
  * Drives the complete EEPROM readout per docs/omron-protocol.md §3-§5:
  *
  * unlock -> session start -> read unread-info section @0x0010 -> ring-buffer record reads
- * -> unread-counter reset -> write-back @0x0054 -> session end (status must be 0)
+ * -> unread-counter reset -> write-back @0x0054 -> session end (dataless 8f00 accepted; only an explicit nonzero status fails)
  *
  * Time sync (spec §5.2) is deliberately NOT performed here — deferred to a later task.
  *

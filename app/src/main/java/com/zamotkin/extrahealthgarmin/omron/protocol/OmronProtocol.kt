@@ -7,7 +7,7 @@ package com.zamotkin.extrahealthgarmin.omron.protocol
  * then this file. Constants that are still [UNVERIFIED-on-device] in the spec are
  * marked below and must not be relied on until the capture task settles them.
  *
- * Source baseline: omblepy @ f323d5ae58693cc737c81c1a1e7ff6ac0679a4664.
+ * Source baseline: omblepy @ 59e6a5994a47dac77826ccb460aa0de5db869545 (v1.0 pin; the v0.9 pin was force-pushed away).
  * This object is pure JVM — no Android types.
  */
 object OmronProtocol {
