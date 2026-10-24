@@ -133,10 +133,8 @@ object OmronSession {
             // cause of subsequent GATT 133 connection failures
             if (sessionOpen) {
                 try {
-                    val end = transport.writeCommand(SessionFrameCodec.SESSION_END_FRAME)
-                    if (end.status != 0) {
-                        // swallow: the original exception carries the real failure
-                    }
+                    transport.writeCommand(SessionFrameCodec.SESSION_END_FRAME)
+                    // result ignored: the original exception carries the real failure
                 } catch (ignored: Exception) {
                     // swallow: preserve the original failure
                 }

@@ -14,13 +14,13 @@
 
 | Source | Pinned reference | Access date |
 |---|---|---|
-| omblepy reference implementation | https://github.com/userx14/omblepy @ commit `f323d5ae58693cc737c81c1a1e7ff6ac0679a4664` (main HEAD) | 2026-10-15 |
+| omblepy reference implementation | https://github.com/userx14/omblepy @ commit `59e6a5994a47dac77826ccb460aa0de5db869545` (main HEAD; re-verified 2026-10-25, v0.9 pin force-pushed away upstream) | 2026-10-15 |
 | — protocol core | `omblepy.py` — symbols: `bluetoothTxRxHandler`, `LEGACY_*_UUID` constants, `startTransmission`, `endTransmission`, `_readBlockEeprom`, `_writeBlockEeprom`, `writeNewUnlockKey`, `unlockWithUnlockKey` | 2026-10-15 |
 | — shared device driver | `sharedDriver.py` — symbols: `sharedDeviceDriverCode`, `getRecords`, `resetUnreadRecordsCounter`, `calcRingBufferRecordReadLocations`, `_getReadCommands_OnlyNewRecords` | 2026-10-15 |
 | — device config | `deviceSpecific/hem-7361t.py` — class `deviceSpecificDriver` (M7 Intelli IT / HEM-7361T) | 2026-10-15 |
 | BLE reversing methodology | https://reverse-engineering-ble-devices.readthedocs.io/en/latest/protocol_reveng/00_protocol_reveng.html (docs/omron.md ref 1) — HCI snoop + ATT framing background | 2026-10-15 |
 
-How to re-verify: clone omblepy, `git checkout f323d5ae58693cc737c81c1a1e7ff6ac0679a4664`,
+How to re-verify: clone omblepy, `git checkout 59e6a5994a47dac77826ccb460aa0de5db869545`,
 check the cited symbols. If a symbol moved/renamed on main, record the rename here.
 
 ## 1. GATT Map

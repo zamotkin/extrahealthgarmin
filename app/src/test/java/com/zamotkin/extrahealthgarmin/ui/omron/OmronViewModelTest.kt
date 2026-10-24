@@ -184,6 +184,29 @@ class OmronViewModelTest {
         Dispatchers.resetMain()
     }
 
+    /** Settings delete-all: wipes every stored row of BOTH slots and reloads the list. */
+    @Test
+    fun `delete_all_wipes_both_slots_and_reloads_the_dashboard_list`() {
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 1, systolic = 120, diastolic = 80, pulse = 65,
+            mov = false, ihb = false, userSlot = 1
+        )
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 2, systolic = 125, diastolic = 85, pulse = 70,
+            mov = false, ihb = false, userSlot = 1
+        )
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 3, systolic = 110, diastolic = 70, pulse = 60,
+            mov = false, ihb = false, userSlot = 2
+        )
+
+        viewModel.deleteAllReadings()
+        drain()
+
+        assertEquals("rows of both slots wiped", 0, dao.rows.size)
+        assertEquals(emptyList<BloodPressureReading>(), viewModel.latestReadings.value)
+    }
+
     /** Advances the scheduler until [predicate] holds on the current state. */
     private fun pumpUntil(timeoutMs: Long = 10_000, predicate: (OmronUiState?) -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs

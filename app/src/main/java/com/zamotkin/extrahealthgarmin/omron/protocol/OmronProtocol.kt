@@ -88,7 +88,8 @@ object OmronProtocol {
     val USER_RECORD_ADDRESSES: IntArray = intArrayOf(USER1_RECORDS_ADDRESS, USER2_RECORDS_ADDRESS)
 
     // ------------------------------------------------------------------ //
-    //  Record bit fields (spec §6) [SRC] — bit 0 = LSB of byte 0         //
+    //  Record bit fields (spec §6) [SRC] — omblepy numbering:            //
+    //  bit k = integer bit 127-k of the 128-bit LE record                //
     // ------------------------------------------------------------------ //
 
     const val BIT_MINUTE_FIRST = 68

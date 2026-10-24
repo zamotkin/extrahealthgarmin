@@ -21,7 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,7 +105,7 @@ fun SettingsScreen(viewModel: OmronViewModel) {
 
         // Destructive: wipes every locally stored reading. A confirm dialog
         // guards the tap; already-uploaded Garmin entries stay on Garmin.
-        var confirmDeleteAll by remember { mutableStateOf(false) }
+        var confirmDeleteAll by rememberSaveable { mutableStateOf(false) }
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier

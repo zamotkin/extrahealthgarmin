@@ -166,10 +166,19 @@ class OmronViewModel(
         }
     }
 
-    /** Settings action: wipes every stored reading from the local database. */
-    fun deleteAllReadings() = viewModelScope.launch {
-        repository.deleteAll()
-        loadLatest()
+    /**
+     * Settings action: wipes every stored reading from the local database.
+     * An in-flight transfer is cancelled and awaited first — otherwise its
+     * storeReadings would silently re-insert the wiped rows on completion.
+     */
+    fun deleteAllReadings() {
+        val active = syncJob
+        viewModelScope.launch {
+            active?.cancel()
+            active?.join()
+            repository.deleteAll()
+            loadLatest()
+        }
     }
 
     /** Permission-request result landed: re-evaluate the gate. */
