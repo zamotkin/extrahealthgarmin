@@ -44,6 +44,9 @@ class GattChannelTransportTest {
         /** When set, one zero-length unit is delivered on RX 0 before the next response. */
         var emitEmptyUnitBeforeResponse = false
 
+        /** When set, RX units are padded to the full channel width (real-device shape, spec §4.5). */
+        var padUnitsTo16 = false
+
         override suspend fun enableNotifications() {
             enableNotificationsCalls++
         }
@@ -79,7 +82,12 @@ class GattChannelTransportTest {
             }
             val units = response.toList().chunked(OmronProtocol.CHANNEL_CHUNK_BYTES) { it.toByteArray() }
             units.forEachIndexed { index, unit ->
-                handler?.invoke(OmronProtocol.RX_CHANNEL_UUIDS[index], unit)
+                val delivered = if (padUnitsTo16 && unit.size < OmronProtocol.CHANNEL_CHUNK_BYTES) {
+                    unit.copyOf(OmronProtocol.CHANNEL_CHUNK_BYTES)   // trailing zeros, like the device
+                } else {
+                    unit
+                }
+                handler?.invoke(OmronProtocol.RX_CHANNEL_UUIDS[index], delivered)
             }
         }
 
@@ -128,6 +136,29 @@ class GattChannelTransportTest {
         assertArrayEquals(command.copyOfRange(0, 16), fake.txWrites[0].second)
         assertEquals(1, fake.txWrites[1].first)
         assertArrayEquals(command.copyOfRange(16, 24), fake.txWrites[1].second)
+    }
+
+    @Test
+    fun `padded rx units reassemble byte-exactly (real-device shape)`() = runTest {
+        // The HEM-7361T-ALRU pads every RX unit to the full 16-byte channel width
+        // (spec §4.5 [CAPTURE]): a 24-byte response frame arrives as 16 bytes on
+        // RX0 plus 16 bytes on RX1 where only the first 8 carry frame data. The
+        // transport must cut at the size byte, never trust the unit length.
+        val data = ByteArray(16) { (it + 1).toByte() }
+        val response = responseFrame(OmronProtocol.RESP_READ, 0x0098, data)
+        assertEquals(24, response.size)
+        val fake = FakeConnection(
+            commandResponses = ArrayDeque(listOf(response)),
+            unlockResponses = ArrayDeque(),
+        )
+        fake.padUnitsTo16 = true
+        val transport = GattChannelTransport(fake)
+
+        val parsed = transport.writeCommand(SessionFrameCodec.buildReadCommand(0x0098, 16))
+
+        assertEquals(OmronProtocol.RESP_READ, parsed.type)
+        assertEquals(0x0098, parsed.address)
+        assertArrayEquals(data, parsed.data)
     }
 
     @Test

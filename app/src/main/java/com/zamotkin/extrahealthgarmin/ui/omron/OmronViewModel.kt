@@ -170,6 +170,8 @@ class OmronViewModel(
      * Settings action: wipes every stored reading from the local database.
      * An in-flight transfer is cancelled and awaited first — otherwise its
      * storeReadings would silently re-insert the wiped rows on completion.
+     * A DAO failure is silent by design (never-throws gateway) — the reloaded
+     * list keeps showing the rows.
      */
     fun deleteAllReadings() {
         val active = syncJob

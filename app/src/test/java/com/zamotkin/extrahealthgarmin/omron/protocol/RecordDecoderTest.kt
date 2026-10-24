@@ -17,7 +17,12 @@ class RecordDecoderTest {
 
     private val decoder = RecordDecoder()
 
-    /** Packs `value` into bits [first..last] in omblepy numbering (bit k = integer bit 127-k of the 128-bit little-endian record; bit 127 = LSB of byte 0). */
+    /**
+     * Packs `value` into bits [first..last] in omblepy numbering (bit k = integer
+     * bit 127-k of the 128-bit little-endian record; bit 127 = LSB of byte 0).
+     * Mirrors the production formula — the literal real-capture vectors are the
+     * only anchor against a shared off-by-one; keep them alongside this helper.
+     */
     private fun setBits(record: ByteArray, first: Int, last: Int, value: Int) {
         for (k in 0..(last - first)) {
             if (value shr k and 1 == 1) {
@@ -72,9 +77,44 @@ class RecordDecoderTest {
         assertEquals(136, prior.systolic)
         assertEquals(88, prior.diastolic)
         assertEquals(69, prior.pulse)
+        org.junit.Assert.assertFalse(prior.mov)
+        org.junit.Assert.assertFalse(prior.ihb)
+        assertEquals(1, prior.userSlot)
         assertEquals(
             LocalDateTime.of(2026, 10, 24, 16, 44, 26).toEpochSecond(ZoneOffset.UTC),
             prior.timestampEpochSec,
+        )
+    }
+
+    /**
+     * Hand-mutated bytes of the real fresh record — literal vectors that anchor
+     * the numbering WITHOUT the [setBits] packing helper (which mirrors the
+     * production formula and would pass a shared off-by-one).
+     */
+    @Test
+    fun `mutated_capture_vectors_pin_flags_and_second_clamping`() {
+        // byte 5 |= 0xC0: mov (bit 7) and ihb (bit 6) set, all other fields unchanged
+        val withFlags = decoder.decode(
+            "70423c1a16ebb5120000f10000000100".hexToBytes(), userSlot = 2,
+        )!!
+        assertEquals(137, withFlags.systolic)
+        assertEquals(66, withFlags.diastolic)
+        assertTrue(withFlags.mov)
+        assertTrue(withFlags.ihb)
+        assertEquals(2, withFlags.userSlot)
+        assertEquals(
+            LocalDateTime.of(2026, 10, 24, 22, 10, 53).toEpochSecond(ZoneOffset.UTC),
+            withFlags.timestampEpochSec,
+        )
+
+        // byte 6 low 6 bits = 0b111111: raw second 63, clamped to 59 (spec §6);
+        // minute (byte 6 bits 6-7 + byte 7 bits 0-3) stays 10
+        val second63 = decoder.decode(
+            "70423c1a162bbf120000f10000000100".hexToBytes(), userSlot = 1,
+        )!!
+        assertEquals(
+            LocalDateTime.of(2026, 10, 24, 22, 10, 59).toEpochSecond(ZoneOffset.UTC),
+            second63.timestampEpochSec,
         )
     }
 

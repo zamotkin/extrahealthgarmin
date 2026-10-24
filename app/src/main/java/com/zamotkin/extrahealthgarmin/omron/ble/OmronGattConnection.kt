@@ -144,6 +144,11 @@ class OmronGattConnection private constructor(
     @Volatile
     private var closed = false
 
+    // Coverage stance: this Android-bound glue (connect/CCCD/callback dispatch)
+    // is deliberately NOT unit-tested — no Robolectric in this project. Its
+    // behavior was verified against real hardware (epic tefal2garmin-ipo
+    // captures, bug tefal2garmin-nov); the testable logic lives behind the
+    // GattChannelConnection seam (see GattChannelTransportTest).
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             Log.d(TAG, "connection state change: status=$status newState=$newState")

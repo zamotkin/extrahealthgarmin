@@ -105,7 +105,11 @@ class OmronViewModelTest {
     private class FakeBloodPressureDao : BloodPressureDao {
         val rows = mutableListOf<BloodPressureRecordEntity>()
 
+        /** When set, deleteAll throws — the never-throws gateway must swallow it. */
+        var failure: Exception? = null
+
         override suspend fun deleteAll() {
+            failure?.let { throw it }
             rows.clear()
         }
 
@@ -205,6 +209,26 @@ class OmronViewModelTest {
 
         assertEquals("rows of both slots wiped", 0, dao.rows.size)
         assertEquals(emptyList<BloodPressureReading>(), viewModel.latestReadings.value)
+    }
+
+    /**
+     * Delete-all on a DAO failure is silent by design (never-throws gateway,
+     * no dedicated error state): the rows survive and the reloaded list still
+     * shows them.
+     */
+    @Test
+    fun `delete_all_dao_failure_is_silent_and_keeps_rows`() {
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 1, systolic = 120, diastolic = 80, pulse = 65,
+            mov = false, ihb = false, userSlot = 1
+        )
+        dao.failure = IllegalStateException("disk gone")
+
+        viewModel.deleteAllReadings()
+        drain()
+
+        assertEquals("delete-all failure must not wipe rows", 1, dao.rows.size)
+        assertEquals(1, viewModel.latestReadings.value?.size ?: 0)
     }
 
     /** Advances the scheduler until [predicate] holds on the current state. */
