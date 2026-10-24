@@ -6,8 +6,11 @@ import kotlinx.coroutines.CancellationException
 
 /**
  * One blood-pressure direct-upload pass (epic tefal2garmin-939, "direct sync
- * only" — no export/share-sheet anywhere): takes the un-synced readings from
- * [OmronBpRepository], hands the whole batch to [upload] (the data-layer
+ * only" — no export/share-sheet anywhere), scoped to ONE monitor user slot
+ * (task tefal2garmin-db5: the M7's two device slots are different people and
+ * the Garmin account is one person, so the other slot's readings never reach
+ * Garmin): takes the un-synced readings of that slot from [OmronBpRepository],
+ * hands the whole batch to [upload] (the data-layer
  * [com.zamotkin.extrahealthgarmin.data.GarminRepository.uploadBloodPressure]
  * entry point, injected as a function so this class stays free of the data
  * layer's collaborators) and, for every record the upload CONFIRMED, marks it
@@ -22,8 +25,8 @@ import kotlinx.coroutines.CancellationException
  * Self-healing: an [UploadOutcome.NotNeeded] over a non-empty pending batch
  * means every pending record is already journaled as uploaded on the Garmin
  * side (e.g. a previous pass confirmed the upload but its markSynced was
- * lost to a DAO failure) — all pending records are then marked synced, so a
- * confirmed upload can never get stuck un-synced.
+ * lost to a DAO failure) — all pending records of the slot are then marked
+ * synced, so a confirmed upload can never get stuck un-synced.
  */
 class BpSyncCoordinator(
     private val repository: OmronBpRepository,
@@ -32,11 +35,11 @@ class BpSyncCoordinator(
 ) {
 
     /**
-     * Runs one pass over the un-synced readings (of one [userSlot], or of
-     * every slot when null) and returns the upload outcome verbatim —
-     * [UploadOutcome.NotNeeded] also when there was nothing pending.
+     * Runs one pass over the un-synced readings of [userSlot] and returns
+     * the upload outcome verbatim — [UploadOutcome.NotNeeded] also when
+     * there was nothing pending for that slot.
      */
-    suspend fun syncOnce(userSlot: Int? = null): UploadOutcome {
+    suspend fun syncOnce(userSlot: Int): UploadOutcome {
         // Never throws by contract; empty on DAO failure (reported to the
         // repository's own onError) — an empty batch skips the upload.
         val pending = repository.unsynced(userSlot)

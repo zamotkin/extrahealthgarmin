@@ -80,6 +80,25 @@ class OmronBpRepository(
             dao.latest(userSlot, limit).map { it.toDomain() }
         }.getOrElse { e -> failed(e) { emptyList() } }
 
+    /**
+     * Every stored reading of one [userSlot], newest first — the full history
+     * of the slot, with no row limit. Empty on DAO failure.
+     */
+    suspend fun allForUser(userSlot: Int): List<BloodPressureReading> =
+        runCatching {
+            dao.allForUser(userSlot).map { it.toDomain() }
+        }.getOrElse { e -> failed(e) { emptyList() } }
+
+    /**
+     * Deletes every stored reading (the settings "delete all" action).
+     * True when the delete ran; false on DAO failure.
+     */
+    suspend fun deleteAll(): Boolean =
+        runCatching {
+            dao.deleteAll()
+            true
+        }.getOrElse { e -> failed(e) { false } }
+
     /** Reports [e] via [onError] and answers with the [fallback] value. */
     private fun <T> failed(e: Throwable, fallback: () -> T): T {
         if (e is CancellationException) throw e

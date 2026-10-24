@@ -16,7 +16,8 @@ class RecordFormatException(message: String) : Exception(message)
  * Decodes one 16-byte EEPROM record into a [BloodPressureReading]
  * per docs/omron-protocol.md §6.
  *
- * Layout (bit 0 = LSB of byte 0, little-endian whole-record integer):
+ * Layout (omblepy bit numbering — bit k = integer bit 127-k of the 128-bit
+ * little-endian record, so systolic 120-127 IS byte 0):
  * minute 68-73, second 74-79 (clamped to 59 — the device may report up to 63),
  * mov 80, ihb 81, month 82-85, day 86-90, hour 91-95, year 98-103 (+2000),
  * pulse 104-111, diastolic 112-119, systolic 120-127 (+25).
@@ -71,14 +72,21 @@ class RecordDecoder {
     }
 
     /**
-     * Extracts bits [first..last] (inclusive) using spec bit numbering:
-     * the record is a little-endian 128-bit integer, bit k lives in byte k/8 at bit k%8.
+     * Extracts bits [first..last] (inclusive) in omblepy numbering: the record
+     * is a 128-bit little-endian integer and omblepy's bit k is integer bit
+     * (127 - k) — bit 127 is the LSB of byte 0, bit 0 the MSB of byte 15.
+     * The v0.9 spec transcribed this as plain LSB-first numbering, which put
+     * every field in the wrong byte; corrected against real HEM-7361T-ALRU
+     * captures (epic tefal2garmin-ipo, 2026-10-24).
      */
     private fun bits(record: ByteArray, first: Int, last: Int): Int {
+        val width = last - first + 1
         var result = 0
-        for (i in last downTo first) {
-            result = result shl 1
-            if (record[i / 8].toInt() and (1 shl (i % 8)) != 0) result = result or 1
+        for (k in 0 until width) {
+            val intBit = record.size * 8 - 1 - last + k
+            if (record[intBit / 8].toInt() and (1 shl (intBit % 8)) != 0) {
+                result = result or (1 shl k)
+            }
         }
         return result
     }

@@ -33,7 +33,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Readings dashboard (task tefal2garmin-mnb): the newest readings of the
+ * Readings dashboard (task tefal2garmin-mnb): every stored reading of the
  * selected monitor user (sys/dia + pulse + date, MOV/IHB badges), the manual
  * Sync button (same foreground pass as the transfer screen's Start) and the
  * auto-upload toggle. Direct upload only — there is deliberately NO
@@ -107,6 +107,11 @@ fun DashboardScreen(viewModel: OmronViewModel) {
                 onCheckedChange = { viewModel.setAutoSync(it) }
             )
         }
+        Text(
+            text = stringResource(R.string.omron_autosync_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(modifier = Modifier.height(4.dp))
         Button(
@@ -119,6 +124,14 @@ fun DashboardScreen(viewModel: OmronViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
         HorizontalDivider()
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Total for the selected slot — the list below is its full stored history.
+        Text(
+            text = stringResource(R.string.omron_readings_count, readings.size),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(modifier = Modifier.height(8.dp))
 
         if (readings.isEmpty()) {

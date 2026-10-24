@@ -169,6 +169,7 @@ class OmronGattConnection private constructor(
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            Log.d(TAG, "descWrite status=$status")
             pendingWriteSlot.complete(status)
         }
 
@@ -177,14 +178,32 @@ class OmronGattConnection private constructor(
             characteristic: BluetoothGattCharacteristic,
             status: Int,
         ) {
+            Log.d(TAG, "charWrite status=$status ${characteristic.uuid.toString().substringAfterLast('-')}")
             pendingWriteSlot.complete(status)
         }
 
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            // API 33+ dispatches the two-arg overload whose default impl calls
-            // this one, so overriding only the legacy variant covers all levels.
+            Log.d(TAG, "changed 1-arg ${characteristic.uuid.toString().substringAfterLast('-')}")
+            // Pre-33 dispatch path. With the 3-arg override below also present
+            // this one is dead code on 13+ (the framework calls the value-bearing
+            // variant there); kept for minSdk 26..32 devices.
             onNotify(characteristic.uuid.toString(), characteristic.value ?: ByteArray(0))
+        }
+
+        override fun onCharacteristicChanged(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+        ) {
+            Log.d(TAG, "changed 3-arg ${characteristic.uuid.toString().substringAfterLast('-')}")
+            // Dispatched on API 33+ (targetSdk-independent since 13 per AOSP —
+            // its default implementation delegates to the legacy overload above).
+            // Both overloads funnel into onNotify, the pattern Nordic/RxAndroidBle
+            // use. The unlock notifications of the real HEM-7361T-ALRU were
+            // invisible because setCharacteristicNotification was never called —
+            // see enableNotifications (bug tefal2garmin-nov).
+            onNotify(characteristic.uuid.toString(), value)
         }
     }
 
@@ -257,6 +276,15 @@ class OmronGattConnection private constructor(
 
     override suspend fun enableNotifications() = opMutex.withLock {
         for (characteristic in notifyCharacteristics) {
+            // Local client-side registration is mandatory: the CCCD write alone
+            // only tells the DEVICE to send notifications - without this call
+            // the phone stack never routes them to onCharacteristicChanged
+            // (bug tefal2garmin-nov, proven on a real HEM-7361T-ALRU: the device
+            // answered every unlock with an 8100 notification on the wire while
+            // the app saw nothing).
+            if (gatt?.setCharacteristicNotification(characteristic, true) != true) {
+                throw OmronBleException("setCharacteristicNotification failed for ${characteristic.uuid}")
+            }
             withBondRetry("enable notify ${characteristic.uuid}") { enableCccd(characteristic) }
         }
     }

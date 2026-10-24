@@ -36,6 +36,11 @@ class OmronBpRepositoryTest {
         private var nextId = 1L
         var failure: Exception? = null
 
+        override suspend fun deleteAll() {
+            failure?.let { throw it }
+            rows.clear()
+        }
+
         override suspend fun insertIgnoreAll(
             records: List<BloodPressureRecordEntity>
         ): List<Long> {
@@ -83,6 +88,13 @@ class OmronBpRepositoryTest {
                 .filter { it.userSlot == userSlot }
                 .sortedByDescending { it.timestampEpochSec }
                 .take(limit)
+        }
+
+        override suspend fun allForUser(userSlot: Int): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter { it.userSlot == userSlot }
+                .sortedByDescending { it.timestampEpochSec }
         }
     }
 
@@ -244,6 +256,27 @@ class OmronBpRepositoryTest {
     // ------------------------------------------------------------------ //
 
     @Test
+    fun `allForUser returns every reading of the slot newest first without a cap`() = runTest {
+        // 25 rows of slot 1 — one more than the old 20-row dashboard cap.
+        repository.storeReadings(
+            (1..25).map { reading(it * 100L, userSlot = 1) } + reading(2_600, userSlot = 2)
+        )
+
+        val all = repository.allForUser(userSlot = 1)
+
+        assertEquals(25, all.size)
+        assertEquals((25 downTo 1).map { it * 100L }, all.map { it.timestampEpochSec })
+        // Domain round-trip proof.
+        assertEquals(
+            BloodPressureReading(
+                timestampEpochSec = 2_500, systolic = 120, diastolic = 80,
+                pulse = 70, mov = false, ihb = false, userSlot = 1
+            ),
+            all.first()
+        )
+    }
+
+    @Test
     fun `dao exception does not throw and reports failure through onError`() = runTest {
         dao.failure = IllegalStateException("disk I/O error")
 
@@ -251,12 +284,14 @@ class OmronBpRepositoryTest {
         val unsynced = repository.unsynced()
         val marked = repository.markSynced(1_000, userSlot = 1)
         val latest = repository.latest(userSlot = 1)
+        val all = repository.allForUser(userSlot = 1)
 
         assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0), store)
         assertEquals(emptyList<BloodPressureReading>(), unsynced)
         assertFalse(marked)
         assertEquals(emptyList<BloodPressureReading>(), latest)
-        assertEquals(4, errors.size)
+        assertEquals(emptyList<BloodPressureReading>(), all)
+        assertEquals(5, errors.size)
         assertTrue(errors.all { it is IllegalStateException })
     }
 
@@ -278,5 +313,33 @@ class OmronBpRepositoryTest {
         }
 
         assertEquals("cancellation is not a DAO failure — onError stays silent", 0, errors.size)
+    }
+
+    /** Settings "delete all": every stored row disappears, success reported. */
+    @Test
+    fun `delete_all_removes_every_stored_reading`() = runTest {
+        repository.storeReadings(
+            listOf(
+                BloodPressureReading(1L, 120, 80, 60, mov = false, ihb = false, userSlot = 1),
+                BloodPressureReading(2L, 125, 85, 65, mov = false, ihb = false, userSlot = 1),
+            ),
+        )
+
+        val deleted = repository.deleteAll()
+
+        assertTrue(deleted)
+        assertTrue("table is empty after deleteAll", dao.rows.isEmpty())
+        assertTrue(repository.latest(userSlot = 1).isEmpty())
+    }
+
+    /** A DAO failure on deleteAll reports false and keeps onError in the loop. */
+    @Test
+    fun `delete_all_failure_reports_false`() = runTest {
+        dao.failure = IllegalStateException("disk gone")
+
+        val deleted = repository.deleteAll()
+
+        assertFalse(deleted)
+        assertEquals(1, errors.size)
     }
 }

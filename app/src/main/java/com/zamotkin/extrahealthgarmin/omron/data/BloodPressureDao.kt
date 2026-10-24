@@ -52,4 +52,16 @@ interface BloodPressureDao {
             "ORDER BY timestampEpochSec DESC LIMIT :limit"
     )
     suspend fun latest(userSlot: Int, limit: Int): List<BloodPressureRecordEntity>
+
+    /** Every stored record of one user slot, newest first (no row limit). */
+    @Query(
+        "SELECT * FROM blood_pressure_records " +
+            "WHERE userSlot = :userSlot " +
+            "ORDER BY timestampEpochSec DESC"
+    )
+    suspend fun allForUser(userSlot: Int): List<BloodPressureRecordEntity>
+
+    /** Deletes every stored record (the settings "delete all readings" action). */
+    @Query("DELETE FROM blood_pressure_records")
+    suspend fun deleteAll()
 }

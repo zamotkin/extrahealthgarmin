@@ -39,9 +39,13 @@ class OmronSessionTest {
     /** Hand-computed 16-byte record: 2025-06-15 12:45:30, sys raw 120 -> 145, dia 80, pulse 70. */
     private fun validRecord(): ByteArray {
         val r = ByteArray(16)
+        // omblepy bit numbering: bit k = integer bit (127-k) of the little-endian record
         fun setBits(first: Int, last: Int, value: Int) {
-            for (i in first..last) {
-                if (value shr (i - first) and 1 == 1) r[i / 8] = (r[i / 8].toInt() or (1 shl (i % 8))).toByte()
+            for (k in 0..(last - first)) {
+                if (value shr k and 1 == 1) {
+                    val intBit = r.size * 8 - 1 - last + k
+                    r[intBit / 8] = (r[intBit / 8].toInt() or (1 shl (intBit % 8))).toByte()
+                }
             }
         }
         setBits(68, 73, 45); setBits(74, 79, 30); setBits(82, 85, 6); setBits(86, 90, 15)
@@ -132,6 +136,32 @@ class OmronSessionTest {
         // last-written slots preserved verbatim
         assertEquals(0x01.toByte(), resetPayload[1])
         assertArrayEquals(SessionFrameCodec.SESSION_END_FRAME, transport.commandWrites[4])
+    }
+
+    @Test
+    fun `dataless_end_response_completes_readout`() = runTest {
+        // Real HEM-7361T-ALRU answers the session end with 8f00 carrying
+        // count=0 - NO status byte at all (btsnoop capture, Pixel 8 Pro,
+        // 2026-10-24). A missing status byte must complete the readout;
+        // only an explicit nonzero status is an error.
+        val record = validRecord()
+        val transport = FakeTransport(
+            unlockResponses = ArrayDeque(listOf(byteArrayOf(0x81.toByte(), 0x00))),
+            commandResponses = ArrayDeque(
+                listOf(
+                    okFrame(OmronProtocol.RESP_SESSION_START, 0x0010),
+                    settingsResponse(),
+                    okFrame(OmronProtocol.RESP_READ, 0x0098, record),
+                    okFrame(OmronProtocol.RESP_WRITE, 0x0054),
+                    okFrame(OmronProtocol.RESP_SESSION_END, 0x0000), // count=0: no status byte
+                ),
+            ),
+        )
+
+        val result = OmronSession.readOut(transport, key, userSlot = 1)
+
+        assertEquals(1, result.readings.size)
+        assertEquals(0, result.skippedRecords)
     }
 
     @Test

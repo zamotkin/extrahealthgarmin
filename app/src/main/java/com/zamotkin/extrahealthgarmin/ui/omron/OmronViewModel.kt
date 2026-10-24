@@ -63,9 +63,6 @@ class OmronViewModel(
 
     companion object {
         private const val TAG = "OmronViewModel"
-
-        /** How many recent readings the dashboard list shows. */
-        const val LATEST_LIMIT = 20
     }
 
     private val _uiState = MutableLiveData<OmronUiState>()
@@ -128,10 +125,12 @@ class OmronViewModel(
 
     /**
      * Success continuation: persist (idempotent), refresh the dashboard
-     * list, then — when auto-sync is on — upload every pending record of BOTH
-     * slots (a reading parked under the other slot is still correct to
-     * upload). An upload failure never discards the read: readings are
-     * already stored and stay retriable, only the state says what happened.
+     * list, then — when auto-sync is on — upload the pending records of the
+     * SELECTED slot only (task tefal2garmin-db5: the monitor's two slots are
+     * different people and the Garmin account is one person, so the other
+     * slot's readings stay local until it is selected). An upload failure
+     * never discards the read: readings are already stored and stay
+     * retriable, only the state says what happened.
      */
     private suspend fun onReadingsRead(readings: List<BloodPressureReading>) {
         repository.storeReadings(readings)
@@ -140,7 +139,7 @@ class OmronViewModel(
             _uiState.value = OmronUiState.Success(readings.size)
             return
         }
-        _uiState.value = when (val outcome = coordinator.syncOnce()) {
+        _uiState.value = when (val outcome = coordinator.syncOnce(settings.userSlot())) {
             UploadOutcome.NotNeeded,
             is UploadOutcome.Success -> OmronUiState.Success(readings.size)
             is UploadOutcome.BpUploaded ->
@@ -165,6 +164,12 @@ class OmronViewModel(
             UploadOutcome.LoginRequired ->
                 OmronUiState.Error(R.string.omron_error_garmin_login_required)
         }
+    }
+
+    /** Settings action: wipes every stored reading from the local database. */
+    fun deleteAllReadings() = viewModelScope.launch {
+        repository.deleteAll()
+        loadLatest()
     }
 
     /** Permission-request result landed: re-evaluate the gate. */
@@ -230,7 +235,7 @@ class OmronViewModel(
     private fun loadLatest() {
         viewModelScope.launch {
             // Never throws by contract; empty list on DAO failure.
-            _latestReadings.value = repository.latest(settings.userSlot(), LATEST_LIMIT)
+            _latestReadings.value = repository.allForUser(settings.userSlot())
         }
     }
 

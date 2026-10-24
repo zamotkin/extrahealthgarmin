@@ -10,14 +10,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -91,6 +96,47 @@ fun SettingsScreen(viewModel: OmronViewModel) {
             Text(
                 text = stringResource(R.string.omron_settings_relogin),
                 style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Destructive: wipes every locally stored reading. A confirm dialog
+        // guards the tap; already-uploaded Garmin entries stay on Garmin.
+        var confirmDeleteAll by remember { mutableStateOf(false) }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { confirmDeleteAll = true }
+                .padding(vertical = 12.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.omron_settings_delete_all),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+        if (confirmDeleteAll) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteAll = false },
+                title = { Text(stringResource(R.string.omron_settings_delete_all)) },
+                text = { Text(stringResource(R.string.omron_settings_delete_all_confirm)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.deleteAllReadings()
+                        confirmDeleteAll = false
+                    }) {
+                        Text(stringResource(R.string.omron_settings_delete_all_yes))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDeleteAll = false }) {
+                        Text(stringResource(R.string.omron_settings_delete_cancel))
+                    }
+                },
             )
         }
     }

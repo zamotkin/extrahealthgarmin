@@ -64,7 +64,9 @@
     <string name="omron_error_sync_retryable">Загрузка в Garmin не удалась - измерения сохранены и повторят загрузку при следующей синхронизации</string>
     <string name="omron_error_garmin_login_required">Войдите в Garmin, чтобы загружать измерения</string>
     <string name="omron_autosync">Загружать в Garmin автоматически</string>
+    <string name="omron_autosync_hint">Загружаются только измерения выбранного пользователя тонометра</string>
     <string name="omron_no_readings">Измерений пока нет - перенесите их с тонометра</string>
+    <string name="omron_readings_count">Измерений: %1$d</string>
     <string name="omron_reading_pulse">%1$d уд/мин</string>
     <string name="omron_reading_sys_dia">%1$d/%2$d мм рт. ст.</string>
     <string name="omron_badge_mov">движ.</string>
@@ -74,5 +76,9 @@
     <string name="omron_settings_user_section">Пользователь тонометра</string>
     <string name="omron_slot_hint">Измерения каждого пользователя тонометра переносятся и хранятся отдельно</string>
     <string name="omron_settings_relogin">Повторно войти в Garmin</string>
+    <string name="omron_settings_delete_all">Удалить все измерения</string>
+    <string name="omron_settings_delete_all_confirm">Это навсегда удалит все измерения, сохранённые в приложении. Уже загруженные в Garmin измерения там не удаляются.</string>
+    <string name="omron_settings_delete_all_yes">Удалить</string>
+    <string name="omron_settings_delete_cancel">Отмена</string>
     <string name="omron_open_readings">Показать измерения</string>
 </resources>

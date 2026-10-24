@@ -110,12 +110,15 @@ object OmronSession {
                 throw OmronSessionException("unexpected unread-reset response: ${resetResponse.type.toString(16)}")
             }
 
-            // 6. session end + device status (spec §4.1)
+            // 6. session end + device status (spec §4.1). The real HEM-7361T-ALRU
+            // answers 8f00 with count=0 - no status byte at all (btsnoop capture,
+            // Pixel 8 Pro, 2026-10-24): a missing byte means success, only an
+            // explicit nonzero status is an error.
             val end = transport.writeCommand(SessionFrameCodec.SESSION_END_FRAME)
             if (end.type != OmronProtocol.RESP_SESSION_END) {
                 throw OmronSessionException("unexpected session end response: ${end.type.toString(16)}")
             }
-            if (end.status != 0) {
+            if (end.status != null && end.status != 0) {
                 throw OmronSessionException("device reported end-status ${end.status}")
             }
             sessionOpen = false

@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -69,10 +70,12 @@ class OmronViewModelTest {
 
     private var uploadOutcome: UploadOutcome = UploadOutcome.NotNeeded
     private var uploadCalls = 0
+    private var lastUploaded: List<BloodPressureReading>? = null
     private val coordinator = BpSyncCoordinator(
         repository = repository,
         upload = { readings ->
             uploadCalls++
+            lastUploaded = readings
             uploadOutcome
         }
     )
@@ -101,6 +104,10 @@ class OmronViewModelTest {
     /** In-memory [BloodPressureDao] mirroring the DAO's contract. */
     private class FakeBloodPressureDao : BloodPressureDao {
         val rows = mutableListOf<BloodPressureRecordEntity>()
+
+        override suspend fun deleteAll() {
+            rows.clear()
+        }
 
         override suspend fun insertIgnoreAll(
             records: List<BloodPressureRecordEntity>
@@ -135,6 +142,10 @@ class OmronViewModelTest {
             rows.filter { it.userSlot == userSlot }
                 .sortedByDescending { it.timestampEpochSec }
                 .take(limit)
+
+        override suspend fun allForUser(userSlot: Int): List<BloodPressureRecordEntity> =
+            rows.filter { it.userSlot == userSlot }
+                .sortedByDescending { it.timestampEpochSec }
     }
 
     // --- helpers -------------------------------------------------------- //
@@ -205,6 +216,29 @@ class OmronViewModelTest {
         assertEquals(1, uploadCalls) // autoSync defaults to on + unsynced rows exist
         assertEquals(OmronUiState.Success(2), viewModel.uiState.value)
         assertEquals(2, viewModel.latestReadings.value?.size)
+    }
+
+    @Test
+    fun autoSync_uploadsOnlyTheSelectedSlotsPendingRecords() {
+        // A slot-1 reading parked from an earlier pass — a different person
+        // on the M7 (task tefal2garmin-db5); it must not reach Garmin.
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 500, systolic = 110, diastolic = 70, pulse = 60,
+            mov = false, ihb = false, userSlot = 1
+        )
+        viewModel.selectUserSlot(2)
+        bleResult = OmronBleResult.Success(listOf(reading(1_000, slot = 2)))
+
+        viewModel.syncNow()
+        pumpUntil { it is OmronUiState.Success }
+
+        assertEquals(1, uploadCalls)
+        assertEquals(
+            "only the selected slot's pending readings reach the upload",
+            listOf(1_000L),
+            lastUploaded?.map { it.timestampEpochSec }
+        )
+        assertFalse("the other slot's reading stays pending", dao.rows.single { it.userSlot == 1 }.synced)
     }
 
     @Test
@@ -382,6 +416,27 @@ class OmronViewModelTest {
         // Out-of-range values coerce to the default slot.
         viewModel.selectUserSlot(7)
         assertEquals(1, viewModel.userSlot.value)
+    }
+
+    @Test
+    fun latestReadings_showFullStoredHistory_beyondTheOld20Cap() {
+        // 25 rows of slot 1 — one more than the old 20-row dashboard cap.
+        (1..25).forEach { index ->
+            dao.rows += BloodPressureRecordEntity(
+                timestampEpochSec = index * 100L, systolic = 120, diastolic = 80, pulse = 60,
+                mov = false, ihb = false, userSlot = 1
+            )
+        }
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 2_600, systolic = 130, diastolic = 85, pulse = 70,
+            mov = true, ihb = false, userSlot = 2
+        )
+
+        createViewModel()
+        drain()
+
+        assertEquals(25, viewModel.latestReadings.value?.size) // slot 1 only, no cap
+        assertEquals(2_500L, viewModel.latestReadings.value?.first()?.timestampEpochSec)
     }
 
     @Test

@@ -17,11 +17,12 @@ class RecordDecoderTest {
 
     private val decoder = RecordDecoder()
 
-    /** Packs `value` into bits [first..last] using spec bit numbering (bit 0 = LSB of byte 0). */
+    /** Packs `value` into bits [first..last] in omblepy numbering (bit k = integer bit 127-k of the 128-bit little-endian record; bit 127 = LSB of byte 0). */
     private fun setBits(record: ByteArray, first: Int, last: Int, value: Int) {
-        for (i in first..last) {
-            if (value shr (i - first) and 1 == 1) {
-                record[i / 8] = (record[i / 8].toInt() or (1 shl (i % 8))).toByte()
+        for (k in 0..(last - first)) {
+            if (value shr k and 1 == 1) {
+                val intBit = record.size * 8 - 1 - last + k
+                record[intBit / 8] = (record[intBit / 8].toInt() or (1 shl (intBit % 8))).toByte()
             }
         }
     }
@@ -45,6 +46,42 @@ class RecordDecoderTest {
         setBits(r, 120, 127, sysRaw)
         return r
     }
+
+    @Test
+    fun `decodes_real_captured_hem7361t_alru_records`() {
+        // Raw EEPROM records from a btsnoop capture of a real HEM-7361T-ALRU
+        // (epic tefal2garmin-ipo, 2026-10-24). Both were confirmed against the
+        // M7 display AND the standard 2A35 indication of the same measurements
+        // — the strongest possible ground truth for the bit layout.
+        val fresh = decoder.decode(
+            "70423c1a162bb5120000f10000000100".hexToBytes(), userSlot = 1,
+        )!!
+        assertEquals(137, fresh.systolic)
+        assertEquals(66, fresh.diastolic)
+        assertEquals(60, fresh.pulse)
+        org.junit.Assert.assertFalse(fresh.mov)
+        org.junit.Assert.assertFalse(fresh.ihb)
+        assertEquals(
+            LocalDateTime.of(2026, 10, 24, 22, 10, 53).toEpochSecond(ZoneOffset.UTC),
+            fresh.timestampEpochSec,
+        )
+
+        val prior = decoder.decode(
+            "6f58451a102b1a1b0001f00000008700".hexToBytes(), userSlot = 1,
+        )!!
+        assertEquals(136, prior.systolic)
+        assertEquals(88, prior.diastolic)
+        assertEquals(69, prior.pulse)
+        assertEquals(
+            LocalDateTime.of(2026, 10, 24, 16, 44, 26).toEpochSecond(ZoneOffset.UTC),
+            prior.timestampEpochSec,
+        )
+    }
+
+    private fun String.hexToBytes(): ByteArray =
+        ByteArray(length / 2) { i ->
+            ((Character.digit(this[i * 2], 16) shl 4) + Character.digit(this[i * 2 + 1], 16)).toByte()
+        }
 
     @Test
     fun `full_record_decodes_all_fields`() {

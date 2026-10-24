@@ -32,7 +32,8 @@ import org.junit.Test
  * Task tefal2garmin-ji0 added the two-pass lost-markSynced integration test
  * (the upload lambda wired through the REAL [GarminRepository] + real
  * [BpUploadJournal] over a shared persistence) and the CancellationException
- * hygiene test.
+ * hygiene test. Task tefal2garmin-db5 scoped every pass to one user slot:
+ * the other slot's pending records are neither uploaded nor marked.
  */
 class BpSyncCoordinatorTest {
 
@@ -53,6 +54,11 @@ class BpSyncCoordinatorTest {
         private var nextId = 1L
         var failure: Exception? = null
         var markSyncedFailure: Exception? = null
+
+        override suspend fun deleteAll() {
+            failure?.let { throw it }
+            rows.clear()
+        }
 
         override suspend fun insertIgnoreAll(
             records: List<BloodPressureRecordEntity>
@@ -102,6 +108,13 @@ class BpSyncCoordinatorTest {
                 .filter { it.userSlot == userSlot }
                 .sortedByDescending { it.timestampEpochSec }
                 .take(limit)
+        }
+
+        override suspend fun allForUser(userSlot: Int): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter { it.userSlot == userSlot }
+                .sortedByDescending { it.timestampEpochSec }
         }
     }
 
@@ -221,7 +234,7 @@ class BpSyncCoordinatorTest {
         repository.storeReadings(listOf(reading(1_000), reading(2_000, userSlot = 2)))
         stagedOutcome = UploadOutcome.Retryable("Upload failed: retries exhausted")
 
-        val outcome = coordinator.syncOnce()
+        val outcome = coordinator.syncOnce(userSlot = 1)
 
         assertTrue("expected Retryable, was $outcome", outcome is UploadOutcome.Retryable)
         assertEquals("the pending batch must have been offered to the upload", 1, uploadCalls)
@@ -236,25 +249,25 @@ class BpSyncCoordinatorTest {
     fun `success_marks_exactly_the_uploaded_records_synced`() = runTest {
         val confirmed1 = reading(1_000, userSlot = 1)
         val rejected = reading(2_000, userSlot = 1)
-        val confirmed2 = reading(2_000, userSlot = 2)
+        val confirmed2 = reading(3_000, userSlot = 1)
         repository.storeReadings(listOf(confirmed1, rejected, confirmed2))
         stagedOutcome = UploadOutcome.BpUploaded(
             confirmedRecords = listOf(confirmed1, confirmed2),
             failureMessages = listOf("Row 2 rejected")
         )
 
-        val outcome = coordinator.syncOnce()
+        val outcome = coordinator.syncOnce(userSlot = 1)
 
         assertTrue("expected BpUploaded pass-through, was $outcome", outcome is UploadOutcome.BpUploaded)
         assertEquals(
-            "unsynced readings, oldest first",
+            "the slot's unsynced readings, oldest first",
             listOf(confirmed1, rejected, confirmed2),
             lastUploaded
         )
         assertEquals(
-            "exactly the confirmed records are marked synced (composite key: " +
-                "USER2 at ts 2000 is synced, USER1 at ts 2000 is not)",
-            listOf<Pair<Long, Int>>(1_000L to 1, 2_000L to 2),
+            "exactly the confirmed records are marked synced " +
+                "(the rejected record at ts 2000 stays un-synced)",
+            listOf<Pair<Long, Int>>(1_000L to 1, 3_000L to 1),
             syncedRows().sortedBy { it.first }
         )
     }
@@ -264,7 +277,7 @@ class BpSyncCoordinatorTest {
         repository.storeReadings(listOf(reading(1_000)))
         uploadException = IllegalStateException("unexpected upload-layer crash")
 
-        val outcome = coordinator.syncOnce()
+        val outcome = coordinator.syncOnce(userSlot = 1)
 
         assertTrue("expected Retryable, was $outcome", outcome is UploadOutcome.Retryable)
         assertEquals("the failure must be reported through onError", 1, coordinatorErrors.size)
@@ -277,7 +290,7 @@ class BpSyncCoordinatorTest {
         repository.storeReadings(listOf(reading(1_000)))
         stagedOutcome = UploadOutcome.LoginRequired
 
-        val outcome = coordinator.syncOnce()
+        val outcome = coordinator.syncOnce(userSlot = 1)
 
         assertTrue(outcome is UploadOutcome.LoginRequired)
         assertEquals(emptyList<Pair<Long, Int>>(), syncedRows())
@@ -285,7 +298,10 @@ class BpSyncCoordinatorTest {
 
     @Test
     fun `empty_pending_skips_upload_entirely`() = runTest {
-        val outcome = coordinator.syncOnce()
+        // Pending, but of the OTHER slot — not part of this pass.
+        repository.storeReadings(listOf(reading(1_000, userSlot = 2)))
+
+        val outcome = coordinator.syncOnce(userSlot = 1)
 
         assertTrue("expected NotNeeded, was $outcome", outcome is UploadOutcome.NotNeeded)
         assertEquals("no upload call for an empty pending set", 0, uploadCalls)
@@ -293,22 +309,28 @@ class BpSyncCoordinatorTest {
 
     /**
      * Self-heal: NotNeeded over a non-empty pending batch means every pending
-     * record is already journaled as uploaded on the Garmin side (e.g. a
-     * previous pass confirmed the upload but its markSynced was lost to a DAO
-     * failure) — all pending records are marked synced so a confirmed upload
-     * can never get stuck un-synced.
+     * record of the pass is already journaled as uploaded on the Garmin side
+     * (e.g. a previous pass confirmed the upload but its markSynced was lost
+     * to a DAO failure) — the slot's pending records are marked synced so a
+     * confirmed upload can never get stuck un-synced. The other slot is not
+     * part of the pass and stays pending.
      */
     @Test
     fun `not_needed_over_pending_batch_marks_all_synced_self_heal`() = runTest {
         repository.storeReadings(listOf(reading(1_000), reading(1_000, userSlot = 2)))
         stagedOutcome = UploadOutcome.NotNeeded
 
-        val outcome = coordinator.syncOnce()
+        val outcome = coordinator.syncOnce(userSlot = 1)
 
         assertTrue(outcome is UploadOutcome.NotNeeded)
         assertEquals(
-            listOf<Pair<Long, Int>>(1_000L to 1, 1_000L to 2),
-            syncedRows().sortedBy { it.second }
+            "only the selected slot's pending record self-heals to synced",
+            listOf<Pair<Long, Int>>(1_000L to 1),
+            syncedRows()
+        )
+        assertFalse(
+            "the other slot's record is not part of the pass",
+            dao.rows.single { it.userSlot == 2 }.synced
         )
     }
 
@@ -317,12 +339,78 @@ class BpSyncCoordinatorTest {
         repository.storeReadings(listOf(reading(1_000)))
         dao.failure = IllegalStateException("disk I/O error")
 
-        val outcome = coordinator.syncOnce()
+        val outcome = coordinator.syncOnce(userSlot = 1)
 
         assertTrue("expected NotNeeded, was $outcome", outcome is UploadOutcome.NotNeeded)
         assertEquals("no upload may happen when the pending set is unreadable", 0, uploadCalls)
         assertEquals("the DAO failure surfaced through the repository's onError", 1, repositoryErrors.size)
         assertFalse(dao.rows.single().synced)
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Task tefal2garmin-db5: the upload is scoped to one user slot       //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * Slot scoping (task tefal2garmin-db5): a pass over one slot offers ONLY
+     * that slot's pending records to the upload — the other slot's pending
+     * records are neither uploaded nor marked, whatever the outcome.
+     */
+    @Test
+    fun `other_slot_pending_records_are_not_uploaded_and_stay_pending`() = runTest {
+        repository.storeReadings(listOf(reading(1_000), reading(2_000, userSlot = 2)))
+        stagedOutcome = UploadOutcome.BpUploaded(
+            confirmedRecords = listOf(reading(1_000)),
+            failureMessages = emptyList()
+        )
+
+        val outcome = coordinator.syncOnce(userSlot = 1)
+
+        assertTrue("expected BpUploaded pass-through, was $outcome", outcome is UploadOutcome.BpUploaded)
+        assertEquals(
+            "only the selected slot's pending readings are offered",
+            listOf(reading(1_000)),
+            lastUploaded
+        )
+        assertEquals(
+            "only the selected slot's confirmed record is marked synced",
+            listOf<Pair<Long, Int>>(1_000L to 1),
+            syncedRows()
+        )
+        assertFalse(
+            "the other slot's pending record stays pending",
+            dao.rows.single { it.userSlot == 2 }.synced
+        )
+    }
+
+    /**
+     * The parked readings are not stranded: a pass with the other slot
+     * selected uploads that slot's pending records.
+     */
+    @Test
+    fun `other_slot_records_upload_when_that_slot_is_selected`() = runTest {
+        repository.storeReadings(listOf(reading(1_000), reading(2_000, userSlot = 2)))
+        stagedOutcome = UploadOutcome.BpUploaded(
+            confirmedRecords = listOf(reading(2_000, userSlot = 2)),
+            failureMessages = emptyList()
+        )
+
+        val outcome = coordinator.syncOnce(userSlot = 2)
+
+        assertTrue("expected BpUploaded pass-through, was $outcome", outcome is UploadOutcome.BpUploaded)
+        assertEquals(
+            "the selected slot's pending readings are offered",
+            listOf(reading(2_000, userSlot = 2)),
+            lastUploaded
+        )
+        assertEquals(
+            listOf<Pair<Long, Int>>(2_000L to 2),
+            syncedRows()
+        )
+        assertFalse(
+            "the unselected slot stays pending until it is selected",
+            dao.rows.single { it.userSlot == 1 }.synced
+        )
     }
 
     // ------------------------------------------------------------------ //
@@ -359,14 +447,14 @@ class BpSyncCoordinatorTest {
         val integrationErrors = mutableListOf<Throwable>()
         val integrationRepository = OmronBpRepository(integrationDao, onError = { integrationErrors.add(it) })
         val integrationCoordinator = BpSyncCoordinator(integrationRepository, realUpload)
-        val readings = listOf(reading(1_000), reading(2_000, userSlot = 2))
+        val readings = listOf(reading(1_000), reading(2_000))
         integrationRepository.storeReadings(readings)
 
         // Pass 1: the upload is confirmed and journaled, but every markSynced
         // is lost to a DAO failure.
         remote.bpUploadResult = UploadResult.Success(2, TOKENS)
         integrationDao.markSyncedFailure = IllegalStateException("disk I/O error")
-        val pass1 = integrationCoordinator.syncOnce()
+        val pass1 = integrationCoordinator.syncOnce(userSlot = 1)
 
         assertTrue("pass 1 must confirm the batch, was $pass1", pass1 is UploadOutcome.BpUploaded)
         assertEquals(
@@ -386,12 +474,12 @@ class BpSyncCoordinatorTest {
         // answers NotNeeded without touching the network, and the
         // coordinator's self-heal finally marks the rows synced.
         integrationDao.markSyncedFailure = null
-        val pass2 = integrationCoordinator.syncOnce()
+        val pass2 = integrationCoordinator.syncOnce(userSlot = 1)
 
         assertTrue("pass 2 must self-heal to NotNeeded, was $pass2", pass2 is UploadOutcome.NotNeeded)
         assertEquals(
             "every previously-confirmed row is now synced",
-            listOf<Pair<Long, Int>>(1_000L to 1, 2_000L to 2),
+            listOf<Pair<Long, Int>>(1_000L to 1, 2_000L to 1),
             syncedRowsOf(integrationDao).sortedBy { it.first }
         )
         assertEquals("the journaled batch must not be re-uploaded", 1, remote.bpUploadCalls)
@@ -412,7 +500,7 @@ class BpSyncCoordinatorTest {
         uploadException = CancellationException("coroutine cancelled")
 
         try {
-            coordinator.syncOnce()
+            coordinator.syncOnce(userSlot = 1)
             fail("CancellationException must propagate out of syncOnce")
         } catch (e: CancellationException) {
             // expected — rethrown before the onError/Retryable fallback
