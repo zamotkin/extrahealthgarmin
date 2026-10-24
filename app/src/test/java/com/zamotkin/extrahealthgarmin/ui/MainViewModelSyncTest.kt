@@ -52,6 +52,8 @@ class MainViewModelSyncTest {
     // Fake facade state
     private var hcSdkStatus: HcSdkStatus = HcSdkStatus.Available
     private var hcGranted: Boolean = true
+    private var hcBloodPressureGranted: Boolean = false
+    private var hcHydrationGranted: Boolean = false
     private var hcSyncResult: SyncResult = SyncResult.Idle
     private var hcLastSyncBeforeAnySync: Long? = null
     private var hcLastSyncAfterSync: Long? = null
@@ -66,7 +68,12 @@ class MainViewModelSyncTest {
         // Mirrors the production facade invariant: no granted permissions
         // without an available provider.
         override suspend fun status() =
-            HcStatusSnapshot(hcSdkStatus, hcGranted && hcSdkStatus == HcSdkStatus.Available)
+            HcStatusSnapshot(
+                hcSdkStatus,
+                hcGranted && hcSdkStatus == HcSdkStatus.Available,
+                bloodPressureGranted = hcBloodPressureGranted,
+                hydrationGranted = hcHydrationGranted
+            )
 
         override suspend fun sync(): SyncResult {
             syncCalls++
@@ -143,6 +150,36 @@ class MainViewModelSyncTest {
         assertTrue(state.hcPermissionsGranted)
         assertEquals("persisted last sync must surface on refresh", 42L, state.hcLastSyncEpochMs)
         assertFalse(state.hcSyncRunning)
+    }
+
+    @Test
+    fun `refresh and permission result map the optional blood pressure and water reads`() {
+        refreshReady()
+        var state = viewModel.uiState.value!!
+        assertFalse(state.hcBloodPressureGranted)
+        assertFalse(state.hcHydrationGranted)
+
+        hcBloodPressureGranted = true
+        hcHydrationGranted = true
+        refreshReady()
+        pumpUntil { it.hcBloodPressureGranted && it.hcHydrationGranted }
+
+        // A permission-screen result without them (user unticked both) clears the flags.
+        hcBloodPressureGranted = false
+        hcHydrationGranted = false
+        viewModel.onHcPermissionsResult(HealthPermissions.REQUIRED_PERMISSIONS)
+        drain()
+        state = viewModel.uiState.value!!
+        assertFalse(state.hcBloodPressureGranted)
+        assertFalse(state.hcHydrationGranted)
+
+        hcBloodPressureGranted = true
+        viewModel.onHcPermissionsResult(
+            HealthPermissions.REQUIRED_PERMISSIONS + HealthPermissions.READ_BLOOD_PRESSURE
+        )
+        drain()
+        assertTrue(viewModel.uiState.value!!.hcBloodPressureGranted)
+        assertFalse(viewModel.uiState.value!!.hcHydrationGranted)
     }
 
     @Test

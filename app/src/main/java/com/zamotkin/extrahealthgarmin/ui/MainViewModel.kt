@@ -60,6 +60,9 @@ data class MainUiState(
     val hcAvailable: Boolean? = null,
     /** Foreground read permissions granted — the gate for syncing. */
     val hcPermissionsGranted: Boolean = false,
+    /** Optional reads; while missing, the matching note offers "tap to allow". */
+    val hcBloodPressureGranted: Boolean = false,
+    val hcHydrationGranted: Boolean = false,
     /** A sync pass is in flight (manual or onResume-triggered). */
     val hcSyncRunning: Boolean = false,
     /** When sync state last advanced (engine truth); drives the 5-min throttle. */
@@ -264,6 +267,8 @@ class MainViewModel(
                 it.copy(
                     hcAvailable = snapshot.sdkStatus == HcSdkStatus.Available,
                     hcPermissionsGranted = snapshot.permissionsGranted,
+                    hcBloodPressureGranted = snapshot.bloodPressureGranted,
+                    hcHydrationGranted = snapshot.hydrationGranted,
                     hcLastSyncEpochMs = hcFacade.lastSyncEpochMs() ?: it.hcLastSyncEpochMs
                 )
             }
@@ -282,7 +287,11 @@ class MainViewModel(
      */
     fun onHcPermissionsResult(granted: Set<String>) {
         updateState {
-            it.copy(hcPermissionsGranted = HealthPermissions.hasForegroundPermissions(granted))
+            it.copy(
+                hcPermissionsGranted = HealthPermissions.hasForegroundPermissions(granted),
+                hcBloodPressureGranted = HealthPermissions.READ_BLOOD_PRESSURE in granted,
+                hcHydrationGranted = HealthPermissions.READ_HYDRATION in granted
+            )
         }
         refreshHcStatus()
     }

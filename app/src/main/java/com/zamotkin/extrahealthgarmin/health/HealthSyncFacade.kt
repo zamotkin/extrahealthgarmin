@@ -15,7 +15,10 @@ import java.time.Instant
 /** Availability + permission snapshot the home screen renders. */
 data class HcStatusSnapshot(
     val sdkStatus: HcSdkStatus,
-    val permissionsGranted: Boolean
+    val permissionsGranted: Boolean,
+    /** Optional reads: only steer the "tap to allow" hints on the notes. */
+    val bloodPressureGranted: Boolean = false,
+    val hydrationGranted: Boolean = false
 )
 
 /**
@@ -80,9 +83,12 @@ class RealHealthSyncFacade(
                 sdkStatus = HealthPermissions.sdkStatus(context),
                 permissionsGranted = false
             )
+        val granted = source.grantedPermissions()
         return HcStatusSnapshot(
             sdkStatus = HcSdkStatus.Available,
-            permissionsGranted = source.hasReadPermissions()
+            permissionsGranted = granted.containsAll(HealthConnectSource.READ_PERMISSIONS),
+            bloodPressureGranted = HealthPermissions.READ_BLOOD_PRESSURE in granted,
+            hydrationGranted = HealthPermissions.READ_HYDRATION in granted
         )
     }
 

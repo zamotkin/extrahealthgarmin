@@ -89,7 +89,7 @@
             android:text="@string/backfill"
             android:enabled="false" />
 
-        <!-- Blood pressure note; tap opens the Health Connect permission screen -->
+        <!-- Blood pressure note; while access is missing, tap opens the Health Connect permission screen -->
         <TextView
             android:id="@+id/bloodPressureNote"
             android:layout_width="match_parent"
@@ -100,7 +100,7 @@
             android:background="?attr/selectableItemBackground"
             android:padding="8dp" />
 
-        <!-- Hydration note; tap opens the Health Connect permission screen -->
+        <!-- Hydration note; while access is missing, tap opens the Health Connect permission screen -->
         <TextView
             android:id="@+id/hydrationNote"
             android:layout_width="match_parent"

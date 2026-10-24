@@ -156,6 +156,7 @@ class MainActivity : AppCompatActivity() {
         renderHcStatus(state)
         renderHcSyncLine(state)
         renderSyncButton(state)
+        renderOptionalNotes(state)
         // Upload/login status text wins over the HC lines
         renderUploadStatus(state)
         renderGarminConnection(state)
@@ -174,8 +175,6 @@ class MainActivity : AppCompatActivity() {
 
         syncNowButton.setOnClickListener { viewModel.syncNow() }
         backfillButton.setOnClickListener { showBackfillDialog() }
-        findViewById<TextView>(R.id.bloodPressureNote).setOnClickListener { requestHcPermissions() }
-        findViewById<TextView>(R.id.hydrationNote).setOnClickListener { requestHcPermissions() }
 
         // Debug-only live-spike trigger for the Garmin DI OAuth2 auth client
         // (task garmin-api-import-j5e.1): hidden long-press on
@@ -274,6 +273,28 @@ class MainActivity : AppCompatActivity() {
                 hcStatusText.isClickable = false
                 hcStatusText.setOnClickListener(null)
             }
+        }
+    }
+
+    /**
+     * Blood pressure / water notes: the "tap to allow" hint and the tap itself
+     * only while that read is missing — once granted the permission screen
+     * returns at once, so a tap would look dead.
+     */
+    private fun renderOptionalNotes(state: MainUiState) {
+        renderOptionalNote(R.id.bloodPressureNote, R.string.bp_note, R.string.bp_note_tap, state.hcBloodPressureGranted)
+        renderOptionalNote(R.id.hydrationNote, R.string.hydration_note, R.string.hydration_note_tap, state.hcHydrationGranted)
+    }
+
+    private fun renderOptionalNote(viewId: Int, noteRes: Int, tapRes: Int, granted: Boolean) {
+        val note = findViewById<TextView>(viewId)
+        if (granted) {
+            note.text = getString(noteRes)
+            note.setOnClickListener(null)
+            note.isClickable = false
+        } else {
+            note.text = getString(noteRes) + " " + getString(tapRes)
+            note.setOnClickListener { requestHcPermissions() }
         }
     }
 

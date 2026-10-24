@@ -58,8 +58,10 @@
     <string name="alert_paused_text">Android may pause this app and remove its permissions if you do not open it. Tap and turn off “Pause app activity if unused”.</string>
     <string name="alert_battery_title">Background sync is being delayed</string>
     <string name="alert_battery_text">Battery optimization lets Android hold back the sync for hours. Tap, open Battery and choose Unrestricted.</string>
-    <string name="bp_note">Blood pressure: Health Connect readings have no pulse, so each one is sent with your Garmin watch\'s heart rate at that minute. Readings wait until the watch has synced. Tap to allow blood pressure access.</string>
+    <string name="bp_note">Blood pressure: Health Connect readings have no pulse, so each one is sent with your Garmin watch\'s heart rate at that minute. Readings wait until the watch has synced.</string>
+    <string name="bp_note_tap">Tap to allow blood pressure access.</string>
     <string name="alert_bp_dropped_title">Blood pressure not synced</string>
     <string name="alert_bp_dropped_text">Readings dropped after a day without Garmin watch heart rate to use as the pulse: %1$d</string>
-    <string name="hydration_note">Water: new Health Connect entries are added to Garmin\'s daily hydration from the moment access is granted (older ones are not, Garmin cannot tell if they are already counted). Deleting or editing an entry corrects Garmin. Tap to allow hydration access.</string>
+    <string name="hydration_note">Water: new Health Connect entries are added to Garmin\'s daily hydration from the moment access is granted (older ones are not, Garmin cannot tell if they are already counted). Deleting or editing an entry corrects Garmin.</string>
+    <string name="hydration_note_tap">Tap to allow hydration access.</string>
 </resources>
