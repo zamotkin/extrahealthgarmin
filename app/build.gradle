@@ -122,6 +122,11 @@ dependencies {
     // ViewModel and LiveData
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
     implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.7.0'
+    // viewModel() inside NavHost destinations (ui/screens/devices, task
+    // tefal2garmin-app-redesign-v3-xlg.3): destination-scoped ViewModels are
+    // cleared when back navigation pops the screen - the add-source BLE
+    // scan stops with them.
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0'
     implementation 'androidx.activity:activity-ktx:1.8.2'
     
     // Coroutines

@@ -25,12 +25,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.zamotkin.extrahealthgarmin.R
 import com.zamotkin.extrahealthgarmin.ui.MainViewModel
+import com.zamotkin.extrahealthgarmin.ui.screens.devices.AddSourceFlowScreen
+import com.zamotkin.extrahealthgarmin.ui.screens.devices.SourceDetailScreen
+import com.zamotkin.extrahealthgarmin.ui.screens.devices.SourceListScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeActions
 import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.measurements.MeasurementsScreen
@@ -39,6 +44,14 @@ import com.zamotkin.extrahealthgarmin.ui.screens.settings.SettingsScreen
 private const val ROUTE_HOME = "home"
 private const val ROUTE_MEASUREMENTS = "measurements"
 private const val ROUTE_SETTINGS = "settings"
+
+// Add-source flow + source management (task xlg.3): sub-screens of the
+// Settings tab, above the bottom bar's own destinations.
+private const val ROUTE_SOURCES = "sources"
+private const val ROUTE_ADD_SOURCE = "add-source"
+private const val SOURCE_DETAIL_ARG = "sourceId"
+private const val ROUTE_SOURCE_DETAIL = "source-detail"
+private const val ROUTE_SOURCE_DETAIL_PATTERN = "$ROUTE_SOURCE_DETAIL/{$SOURCE_DETAIL_ARG}"
 
 private data class EhgDestination(
     val route: String,
@@ -95,7 +108,35 @@ fun AppRoot(
                 MeasurementsScreen()
             }
             composable(ROUTE_SETTINGS) {
-                SettingsScreen()
+                SettingsScreen(
+                    onOpenSources = { navController.navigate(ROUTE_SOURCES) },
+                    onAddSource = { navController.navigate(ROUTE_ADD_SOURCE) },
+                )
+            }
+            composable(ROUTE_SOURCES) {
+                SourceListScreen(
+                    onBack = { navController.navigateUp() },
+                    onOpenSource = { sourceId ->
+                        navController.navigate("$ROUTE_SOURCE_DETAIL/$sourceId")
+                    },
+                    onAddSource = { navController.navigate(ROUTE_ADD_SOURCE) },
+                )
+            }
+            composable(
+                route = ROUTE_SOURCE_DETAIL_PATTERN,
+                arguments = listOf(navArgument(SOURCE_DETAIL_ARG) { type = NavType.StringType }),
+            ) { entry ->
+                SourceDetailScreen(
+                    sourceId = entry.arguments?.getString(SOURCE_DETAIL_ARG).orEmpty(),
+                    onBack = { navController.navigateUp() },
+                    onRemoved = { navController.navigateUp() },
+                )
+            }
+            composable(ROUTE_ADD_SOURCE) {
+                AddSourceFlowScreen(
+                    onBack = { navController.navigateUp() },
+                    onFinished = { navController.popBackStack() },
+                )
             }
         }
     }

@@ -110,6 +110,20 @@ object OmronBleSourceType : BleBpSourceType {
     }
 
     /**
+     * Persists a user-entered 16-byte pairing key (task
+     * tefal2garmin-app-redesign-v3-xlg.3): writes the encrypted key file
+     * [createFromDevice] reads via [OmronKeyStore.getOrCreate], so the
+     * first read of a source added through the add-source flow unlocks the
+     * monitor with exactly this key. Returns the stored-key identifier
+     * kept in ConnectedSource.pairingKeyRef.
+     */
+    fun storePairingKey(context: Context, key: ByteArray): String {
+        FileKeyPersistence(File(context.filesDir, PAIRING_KEY_FILE_NAME))
+            .save(KeystoreAesPairingKeyCrypto().encrypt(key))
+        return PAIRING_KEY_FILE_NAME
+    }
+
+    /**
      * Pairing-key file in filesDir - the same name the pre-sources
      * OmronViewModelFactory wiring uses, so the stored key is shared.
      */

@@ -121,9 +121,61 @@
     <string name="nav_settings">Settings</string>
     <string name="measurements_empty_title">No measurements yet</string>
     <string name="measurements_empty_text">Connect a blood pressure source in Settings to see readings here.</string>
-    <string name="settings_interim_text">Blood pressure sources, Garmin and Health Connect settings will live here. For now everything is on the Home tab.</string>
+    <string name="settings_interim_text">Blood-pressure sources are managed here. Garmin, Health Connect and about sections arrive in a later update.</string>
     <!-- Blood-pressure source types (devices/, task tefal2garmin-app-redesign-v3-xlg.2).
          Brand names — identical in every locale, like app_name. -->
     <string name="bp_source_type_omron_ble">Omron M7 Intelli IT</string>
     <string name="bp_source_type_health_connect">Health Connect</string>
-</resources>
+
+    <!-- Add-source flow + source management (ui/screens/devices/, task
+         tefal2garmin-app-redesign-v3-xlg.3). -->
+    <string name="action_back">Back</string>
+    <string name="add_source">Add source</string>
+    <string name="add_source_title">Add blood-pressure source</string>
+    <string name="add_source_pick_hint">Choose where blood-pressure readings come from</string>
+    <string name="add_source_ble_hint">Wireless monitor over Bluetooth</string>
+    <string name="add_source_hc_hint">Readings stored on this phone by other apps</string>
+    <string name="add_source_ble_permissions_title">Bluetooth permissions needed</string>
+    <string name="add_source_ble_permissions_text">To find your monitor, the app needs the Bluetooth permission.</string>
+    <string name="add_source_ble_permissions_denied_text">Without the Bluetooth permission the app cannot look for your monitor. You can grant it at any time.</string>
+    <string name="add_source_ble_permissions_grant">Grant permission</string>
+    <string name="add_source_scanning">Scanning</string>
+    <string name="add_source_scan_hint">Wake the monitor (take a measurement or press its button) and keep it close.</string>
+    <string name="add_source_no_devices">No monitors found yet</string>
+    <string name="add_source_rssi">%1$d dBm</string>
+    <string name="add_source_stop_scan">Stop scanning</string>
+    <string name="add_source_scan_again">Scan again</string>
+    <string name="add_source_scan_error">Scanning failed</string>
+    <string name="add_source_pair_title">Connect %1$s</string>
+    <string name="add_source_key_label">Pairing key</string>
+    <string name="add_source_key_hint">Enter exactly 16 characters. The app programs this key into the monitor on the first transfer.</string>
+    <string name="add_source_key_error">The pairing key must be exactly 16 characters.</string>
+    <string name="add_source_bonding_hint">This monitor pairs through the Android system Bluetooth dialog, which appears on the first read.</string>
+    <string name="add_source_hc_grant_hint">Blood-pressure access is granted in the Health Connect app.</string>
+    <string name="add_source_hc_grant">Grant access</string>
+    <string name="add_source_hc_denied_text">Blood-pressure access was not granted, so Health Connect readings cannot be read.</string>
+    <string name="add_source_hc_unavailable">Health Connect is not installed or needs an update.</string>
+    <string name="add_source_save">Save</string>
+    <string name="add_source_saving">Saving…</string>
+    <string name="add_source_done_title">Source added</string>
+    <string name="add_source_done_text">The source is ready to read.</string>
+    <string name="add_source_done">Done</string>
+    <string name="add_source_save_error">Could not save the source. Try again.</string>
+    <string name="add_source_start_over">Start over</string>
+    <string name="sources_title">Blood-pressure sources</string>
+    <string name="sources_empty_title">No sources yet</string>
+    <string name="sources_empty_text">Add a monitor or Health Connect to collect blood-pressure readings.</string>
+    <string name="source_detail_title">Source details</string>
+    <string name="source_detail_type">Type</string>
+    <string name="source_detail_address">Address</string>
+    <string name="source_detail_connected">Connected</string>
+    <string name="source_remove">Remove source</string>
+    <string name="source_remove_confirm_title">Remove this source?</string>
+    <string name="source_remove_confirm_text">Only the connection is removed; stored readings are kept.</string>
+    <string name="source_remove_confirm_action">Remove</string>
+    <string name="source_remove_cancel">Cancel</string>
+    <string name="source_not_found">This source is no longer connected.</string>
+    <string name="settings_connections_title">Connections</string>
+    <string name="settings_connections_sources">Blood-pressure sources</string>
+    <string name="settings_connections_sources_value">Monitors and apps</string>
+    </resources>

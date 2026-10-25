@@ -120,9 +120,61 @@
     <string name="nav_settings">Настройки</string>
     <string name="measurements_empty_title">Измерений пока нет</string>
     <string name="measurements_empty_text">Подключите источник артериального давления в настройках, чтобы увидеть измерения здесь.</string>
-    <string name="settings_interim_text">Здесь появятся источники артериального давления и настройки Garmin и Health Connect. Пока всё находится на вкладке «Главная».</string>
+    <string name="settings_interim_text">Источники артериального давления настраиваются здесь. Разделы Garmin, Health Connect и сведения о приложении появятся позже.</string>
     <!-- Blood-pressure source types (devices/, task tefal2garmin-app-redesign-v3-xlg.2).
          Brand names — identical in every locale, like app_name. -->
     <string name="bp_source_type_omron_ble">Omron M7 Intelli IT</string>
     <string name="bp_source_type_health_connect">Health Connect</string>
-</resources>
+
+    <!-- Add-source flow + source management (ui/screens/devices/, task
+         tefal2garmin-app-redesign-v3-xlg.3). -->
+    <string name="action_back">Назад</string>
+    <string name="add_source">Добавить источник</string>
+    <string name="add_source_title">Добавление источника давления</string>
+    <string name="add_source_pick_hint">Выберите, откуда брать измерения давления</string>
+    <string name="add_source_ble_hint">Беспроводной тонометр через Bluetooth</string>
+    <string name="add_source_hc_hint">Измерения, сохранённые другими приложениями на этом телефоне</string>
+    <string name="add_source_ble_permissions_title">Нужны разрешения Bluetooth</string>
+    <string name="add_source_ble_permissions_text">Чтобы найти тонометр, приложению нужно разрешение Bluetooth.</string>
+    <string name="add_source_ble_permissions_denied_text">Без разрешения Bluetooth приложение не сможет искать тонометр. Разрешение можно выдать в любой момент.</string>
+    <string name="add_source_ble_permissions_grant">Выдать разрешение</string>
+    <string name="add_source_scanning">Поиск</string>
+    <string name="add_source_scan_hint">Разбудите тонометр (измерьте давление или нажмите его кнопку) и держите его рядом.</string>
+    <string name="add_source_no_devices">Тонометры пока не найдены</string>
+    <string name="add_source_rssi">%1$d дБм</string>
+    <string name="add_source_stop_scan">Остановить поиск</string>
+    <string name="add_source_scan_again">Искать снова</string>
+    <string name="add_source_scan_error">Не удалось выполнить поиск</string>
+    <string name="add_source_pair_title">Подключение: %1$s</string>
+    <string name="add_source_key_label">Ключ сопряжения</string>
+    <string name="add_source_key_hint">Введите ровно 16 символов. Приложение запишет этот ключ в тонометр при первой передаче.</string>
+    <string name="add_source_key_error">Ключ сопряжения должен содержать ровно 16 символов.</string>
+    <string name="add_source_bonding_hint">Этот тонометр сопрягается через системное окно Bluetooth — оно появится при первом чтении.</string>
+    <string name="add_source_hc_grant_hint">Доступ к давлению предоставляется в приложении Health Connect.</string>
+    <string name="add_source_hc_grant">Предоставить доступ</string>
+    <string name="add_source_hc_denied_text">Доступ к давлению не предоставлен — измерения из Health Connect недоступны.</string>
+    <string name="add_source_hc_unavailable">Health Connect не установлен или требует обновления.</string>
+    <string name="add_source_save">Сохранить</string>
+    <string name="add_source_saving">Сохранение…</string>
+    <string name="add_source_done_title">Источник добавлен</string>
+    <string name="add_source_done_text">Источник готов к чтению.</string>
+    <string name="add_source_done">Готово</string>
+    <string name="add_source_save_error">Не удалось сохранить источник. Попробуйте ещё раз.</string>
+    <string name="add_source_start_over">Начать сначала</string>
+    <string name="sources_title">Источники давления</string>
+    <string name="sources_empty_title">Источников пока нет</string>
+    <string name="sources_empty_text">Добавьте тонометр или Health Connect, чтобы собирать измерения давления.</string>
+    <string name="source_detail_title">Источник</string>
+    <string name="source_detail_type">Тип</string>
+    <string name="source_detail_address">Адрес</string>
+    <string name="source_detail_connected">Подключён</string>
+    <string name="source_remove">Удалить источник</string>
+    <string name="source_remove_confirm_title">Удалить этот источник?</string>
+    <string name="source_remove_confirm_text">Будет удалено только подключение; сохранённые измерения останутся.</string>
+    <string name="source_remove_confirm_action">Удалить</string>
+    <string name="source_remove_cancel">Отмена</string>
+    <string name="source_not_found">Этот источник больше не подключён.</string>
+    <string name="settings_connections_title">Подключения</string>
+    <string name="settings_connections_sources">Источники давления</string>
+    <string name="settings_connections_sources_value">Тонометры и приложения</string>
+    </resources>
