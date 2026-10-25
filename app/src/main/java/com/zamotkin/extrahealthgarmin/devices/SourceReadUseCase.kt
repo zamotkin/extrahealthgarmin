@@ -35,7 +35,8 @@ import kotlinx.coroutines.sync.withLock
  *   pass never reached the store step (not a Success).
  *   [OmronBpRepository.StoreResult.success] false inside marks a store that
  *   wrote nothing — a DAO failure the pass survives with its readings
- *   re-deliverable (task xlg.15).
+ *   re-deliverable (task xlg.15) and with none of its sync-state writes
+ *   applied: no anchor advance, no fallback-flag clear (task xlg.16).
  */
 data class SourceReadOutcome(
     val result: SourceReadResult,
@@ -92,15 +93,21 @@ interface DeferredCommitSource {
  * only the unread window since the last successful read. A successful pass
  * advances the app-side [ConnectedSource.lastReadAnchor] to the newest
  * ingested reading; a failed pass advances nothing. The self-healing
- * fallback covers the Omron counter-reset edge — a Current pass that dies
- * after the source may already have consumed its unread window (the
- * monitor resets its unread counters mid-session) flags the source, and
- * the NEXT pass runs one full-ring History plan to recover; the flag
- * clears only when such a pass succeeds, so no failure sequence can lose
- * readings a History re-read could still deliver. The source's own
- * anchors (Omron's device counters, Health Connect's changes token)
- * remain the real Current anchor; lastReadAnchor is app-side bookkeeping
- * and the model for sources without device counters.
+ * fallback covers the Omron counter-reset edge — every Current plan is
+ * flagged BEFORE it runs (one row write under the per-source read lock,
+ * task xlg.16: the monitor resets its unread counters mid-session, and a
+ * pass that dies from that point on — a CancellationException escaping
+ * [BpSource.read], a process death mid-pass — has consumed a window
+ * nothing recorded), so the NEXT pass runs one full-ring History plan to
+ * recover. The flag clears only when a pass's store step succeeded
+ * ([OmronBpRepository.StoreResult.success], see [advanceReadState]) —
+ * never on a failed read or a DAO failure — so no failure sequence can
+ * lose readings a History re-read could still deliver; the price is one
+ * extra full-ring read after a cancellation that struck before the device
+ * consumed anything. The source's own anchors (Omron's device counters,
+ * Health Connect's changes token) remain the real Current anchor;
+ * lastReadAnchor is app-side bookkeeping and the model for sources without
+ * device counters.
  *
  * Deliberately slim and free of UI knowledge: task xlg.6 wires the
  * read-now button and the autosync to it.
@@ -167,6 +174,17 @@ class SourceReadUseCase(
             source.syncMode == SyncMode.CURRENT &&
             SyncMode.HISTORY in type.capabilities.supportedSyncModes
         val planMode = if (fallbackPending) SyncMode.HISTORY else source.syncMode
+        // Task xlg.16 (the xlg.5 review): a Current plan is flagged BEFORE
+        // it runs, not after it fails. The Omron monitor resets its unread
+        // counters mid-session, so a pass that dies from that point on - a
+        // CancellationException escaping read(), a process death mid-pass -
+        // has consumed a window nothing recorded; the durable row write
+        // closes that exit too (process death included), at the cost of one
+        // extra full-ring read after a cancellation that struck before the
+        // device consumed anything. Cleared only by advanceReadState, when
+        // a pass's store step succeeded; the configured sync mode is never
+        // rewritten.
+        if (planMode == SyncMode.CURRENT) requestFullReadFallback(source, type)
         // read() is terminal by contract; the guard keeps a broken
         // implementation from crashing the caller (same hygiene as the
         // xlg.13 remediation).
@@ -175,20 +193,19 @@ class SourceReadUseCase(
                 SourceReadRequest(syncMode = planMode, userSlot = source.userSlot)
             )
         } catch (e: CancellationException) {
+            // The flag set above is already durable: the next pass re-reads
+            // the whole ring instead of trusting the window.
             throw e
         } catch (e: Exception) {
-            // The pass DID reach the source: a Current plan that died here
-            // may have consumed the unread window mid-session, so flag the
-            // recovery plan before folding onto Failed.
-            if (planMode == SyncMode.CURRENT) requestFullReadFallback(source, type)
+            // The flag set above already covers the window this pass may
+            // have consumed mid-session.
             return sourceFailed(source, "read failed unexpectedly", e)
         }
         if (result !is SourceReadResult.Success) {
             // Failed passes stay retryable: nothing stored, no state
-            // advanced (the read anchor must not move) - except the
-            // recovery flag a failed Current plan sets, which is what makes
-            // the NEXT pass re-read the window the source may have consumed.
-            if (planMode == SyncMode.CURRENT) requestFullReadFallback(source, type)
+            // advanced (the read anchor must not move) - the fallback flag
+            // set before the plan is what makes the NEXT pass re-read the
+            // window the source may have consumed.
             return SourceReadOutcome(result)
         }
         val kept = filterByUserSlot(result.readings, type.capabilities, source.userSlot)
@@ -206,22 +223,36 @@ class SourceReadUseCase(
         if (stored.success && bpSource is DeferredCommitSource) {
             bpSource.commitDelivered()
         }
+        if (!stored.success) {
+            // Task xlg.16 (the xlg.5 review): the DAO wrote nothing - this
+            // pass consumed its window for nothing Room holds. Advancing the
+            // anchor or clearing the fallback flag here would mark that
+            // window ingested while it is not; both stay, so the flagged
+            // source re-reads the full ring on the next pass.
+            return SourceReadOutcome(result = result, stored = stored)
+        }
         advanceReadState(source, kept)
         return SourceReadOutcome(result = result, stored = stored)
     }
 
     /**
-     * Flags [source] for one full-ring fallback read (the task xlg.5 edge
-     * fix): a Current pass failed after the source may already have
-     * consumed its unread window (the Omron monitor resets its unread
-     * counters mid-session, before the pass can prove the readings were
-     * delivered), so the NEXT pass re-reads the whole device memory - the
-     * repository's insert-ignore index absorbs everything already stored -
-     * instead of trusting the window. Any non-Success outcome counts:
-     * over-flagging costs one slow read, under-flagging can cost readings.
+     * Flags [source] for one full-ring fallback read BEFORE its Current
+     * plan runs (task xlg.16, the xlg.5 review fix): the Omron monitor
+     * resets its unread counters mid-session, and a pass that dies from
+     * that point on - a CancellationException escaping [BpSource.read]
+     * (withContext exit-cancel), a process death mid-pass - has consumed a
+     * window nothing recorded, so the flag must be durable BEFORE the
+     * session starts; a post-failure write cannot cover those exits. The
+     * NEXT pass then runs one full-ring History plan - the repository's
+     * insert-ignore index absorbs everything already stored - instead of
+     * trusting the window. The cost: a cancellation that struck before the
+     * device consumed anything still costs one extra full-ring read;
+     * over-flagging costs a slow read, under-flagging can cost readings.
      * Skipped for sources that cannot fall back (no History support) -
      * their own anchor, like Health Connect's changes token, advances only
      * on success, so a retry re-reads exactly what the failed pass missed.
+     * Never rewrites the configured sync mode; cleared only by
+     * [advanceReadState], when a pass's store step succeeded.
      */
     private suspend fun requestFullReadFallback(
         source: ConnectedSource,
@@ -243,6 +274,10 @@ class SourceReadUseCase(
      * nothing - and a pending full-read fallback clears, because a pass
      * under a pending flag always ran the full-ring History plan: the
      * window the failed Current pass may have consumed has been re-read.
+     * Runs ONLY after a store step that succeeded
+     * ([OmronBpRepository.StoreResult.success], task xlg.16): a DAO failure
+     * wrote nothing, so the anchor stays and the fallback flag stays - the
+     * next pass re-reads instead of trusting a window Room does not hold.
      * Bookkeeping only - the readings themselves are already in Room, and
      * the source's own anchors stay untouched by this write.
      */

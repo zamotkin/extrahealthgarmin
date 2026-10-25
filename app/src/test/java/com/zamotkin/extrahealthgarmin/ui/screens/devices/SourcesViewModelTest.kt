@@ -7,6 +7,7 @@ import com.zamotkin.extrahealthgarmin.devices.healthconnect.HealthConnectBpSourc
 import com.zamotkin.extrahealthgarmin.devices.omron.OmronBleSourceType
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSource
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSourceStore
+import com.zamotkin.extrahealthgarmin.devices.store.FileConnectedSourceStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -19,8 +20,11 @@ import org.junit.Test
  * store load/refresh mapping and the removal logic - only the confirmed
  * connection is removed (readings stay in Room by construction: nothing
  * here touches the database), an unknown id saves nothing, and a failed
- * write keeps the old list. The registry is the real one (plain-JVM
- * objects, same as SourceRegistryTest); the store is a hand fake.
+ * write keeps the old list. Task xlg.16 (the xlg.5 review) additionally
+ * pins that remove is the store's ROW-ATOMIC operation, not a whole-list
+ * load-modify-save that could revert a concurrent row-level write. The
+ * registry is the real one (plain-JVM objects, same as
+ * SourceRegistryTest); the store is a hand fake.
  */
 class SourcesViewModelTest {
 
@@ -29,6 +33,7 @@ class SourcesViewModelTest {
 
     private class FakeStore(var sources: List<ConnectedSource>) : ConnectedSourceStore {
         val saved = mutableListOf<List<ConnectedSource>>()
+        val removed = mutableListOf<String>()
         var failSave = false
 
         override fun load(): List<ConnectedSource> = sources
@@ -37,6 +42,21 @@ class SourcesViewModelTest {
             if (failSave) return false
             saved += sources
             this.sources = sources
+            return true
+        }
+
+        /**
+         * Mirrors the production [FileConnectedSourceStore] override: one
+         * atomic list change that never routes through the whole-list
+         * [save] seam (a single-threaded fake, so plain state logic is
+         * equally atomic) - which is what lets the tests see a ViewModel
+         * that writes whole stale lists.
+         */
+        override fun remove(id: String): Boolean {
+            if (sources.none { it.id == id }) return false
+            if (failSave) return false
+            removed += id
+            sources = sources.filterNot { it.id == id }
             return true
         }
     }
@@ -79,15 +99,40 @@ class SourcesViewModelTest {
     fun `remove deletes only the confirmed connection`() {
         val vm = newViewModel()
         assertTrue(vm.remove("id-1"))
-        assertEquals(1, store.saved.size)
-        assertEquals(listOf(hcSource), store.saved[0])
+        // Task xlg.16: the removal is the store's row-atomic operation -
+        // one delegated call, never a whole-list save the ViewModel built
+        // from a stale load (that save could revert a background pass's
+        // row-level write).
+        assertEquals(listOf("id-1"), store.removed)
+        assertTrue(store.saved.isEmpty())
+        assertEquals(listOf(hcSource), store.sources)
         assertEquals(listOf(hcSource), vm.sources.value)
+    }
+
+    @Test
+    fun `remove keeps a row-level update that landed after the screen loaded its list`() {
+        // A background read pass (anchor/fallback bookkeeping) lands while
+        // the screen shows the list it loaded on entry - the row-atomic
+        // removal must not revert it.
+        val vm = newViewModel()
+        store.sources = listOf(
+            omronSource,
+            hcSource.copy(lastReadAnchor = 42L, fullReadFallbackPending = true)
+        )
+
+        assertTrue(vm.remove("id-1"))
+
+        val survivor = store.sources.single()
+        assertEquals("id-2", survivor.id)
+        assertEquals(42L, survivor.lastReadAnchor)
+        assertTrue(survivor.fullReadFallbackPending)
     }
 
     @Test
     fun `remove of an unknown id saves nothing`() {
         val vm = newViewModel()
         assertFalse(vm.remove("no-such-id"))
+        assertTrue(store.removed.isEmpty())
         assertTrue(store.saved.isEmpty())
         assertEquals(listOf(omronSource, hcSource), vm.sources.value)
     }
@@ -97,6 +142,7 @@ class SourcesViewModelTest {
         store.failSave = true
         val vm = newViewModel()
         assertFalse(vm.remove("id-2"))
+        assertTrue(store.removed.isEmpty())
         assertTrue(store.saved.isEmpty())
         assertEquals(listOf(omronSource, hcSource), vm.sources.value)
     }

@@ -44,15 +44,16 @@ class SourcesViewModel(
     /**
      * Removes one connected source after the user confirmed. True when the
      * store was updated; false when the write failed or the id is unknown -
-     * the store's never-throws contract holds here too.
+     * the store's never-throws contract holds here too. The write is the
+     * store's row-atomic [ConnectedSourceStore.remove] (task xlg.16): the
+     * old whole-list save could silently revert a row-level write (anchor,
+     * fallback flag, mode toggle) a background read pass landed between
+     * its load and its save.
      */
     fun remove(id: String): Boolean {
-        val current = store.load()
-        val remaining = current.filterNot { it.id == id }
-        if (remaining.size == current.size) return false // unknown id - nothing to do
-        val saved = store.save(remaining)
-        if (saved) _sources.value = remaining
-        return saved
+        val removed = store.remove(id)
+        if (removed) refresh()
+        return removed
     }
 
     /**

@@ -32,11 +32,13 @@ import java.io.IOException
  *   anchor (Omron's device counters, Health Connect's changes token)
  *   remains the real Current anchor; this is the model for sources without
  *   one. Null until the first successful pass that ingested a reading.
- * @property fullReadFallbackPending set after a failed Current read
- *   (task .5): the pass may have consumed the source's unread window
- *   before dying, so the NEXT read runs one full-ring History plan to
- *   recover; cleared once such a pass succeeds. Transient by nature, but
- *   persisted so a restart cannot reopen the data-loss window.
+ * @property fullReadFallbackPending set BEFORE a Current read plan runs
+ *   (tasks .5/.16): the plan may consume the source's unread window and
+ *   die (a cancelled pass, a process death) before Room commits, so the
+ *   flag is durable before the session starts and the NEXT read runs one
+ *   full-ring History plan to recover; cleared once a pass's store step
+ *   succeeded. Transient by nature, but persisted so a restart cannot
+ *   reopen the data-loss window.
  * @property createdAt when the source was connected, epoch ms
  */
 data class ConnectedSource(
@@ -87,6 +89,36 @@ interface ConnectedSourceStore {
         val next = rows.toMutableList().apply { set(index, updated) }
         return save(next)
     }
+
+    /**
+     * Removes one stored row: the source with [id] disappears from the
+     * list, every other row untouched. True when the row was found and the
+     * store ended up without it; false when the id is unknown or the write
+     * failed (logged, never thrown - the old file survives).
+     *
+     * Same atomicity contract as [update] (task xlg.16, the xlg.5 review):
+     * the default is a plain load-modify-save - fine for single-threaded
+     * fakes; [FileConnectedSourceStore] overrides it as one atomic
+     * load-modify-save so a concurrent row-level writer (the read
+     * orchestrator's anchor/fallback bookkeeping, a mode toggle) cannot be
+     * silently reverted by a stale-list save.
+     */
+    fun remove(id: String): Boolean {
+        val rows = load()
+        val next = rows.filterNot { it.id == id }
+        if (next.size == rows.size) return false
+        return save(next)
+    }
+
+    /**
+     * Appends one row - the add-source flow's freshly minted source (a new
+     * UUID, never an id the store already holds). True when the store ended
+     * up holding it; false when the write failed (the old file survives).
+     *
+     * Same atomicity contract as [update]/[remove]: the default is a plain
+     * load-modify-save; [FileConnectedSourceStore] runs it under its lock.
+     */
+    fun add(source: ConnectedSource): Boolean = save(load() + source)
 }
 
 /**
@@ -196,6 +228,28 @@ class FileConnectedSourceStore(private val file: File) : ConnectedSourceStore {
         if (updated == rows[index]) return true
         val next = rows.toMutableList().apply { set(index, updated) }
         save(next)
+    }
+
+    /**
+     * [remove][ConnectedSourceStore.remove] under the store's lock - same
+     * atomicity as [update]: a concurrent row-level writer (anchor,
+     * fallback flag, mode toggle) cannot land between the load and the save
+     * and be silently reverted by the stale-list write (task xlg.16, the
+     * xlg.5 review).
+     */
+    override fun remove(id: String): Boolean = synchronized(lock) {
+        val rows = load()
+        val next = rows.filterNot { it.id == id }
+        if (next.size == rows.size) return false
+        save(next)
+    }
+
+    /**
+     * [add][ConnectedSourceStore.add] under the store's lock - same
+     * atomicity as [update] and [remove].
+     */
+    override fun add(source: ConnectedSource): Boolean = synchronized(lock) {
+        save(load() + source)
     }
 
     /** A stored mode string that no longer parses keeps the default. */

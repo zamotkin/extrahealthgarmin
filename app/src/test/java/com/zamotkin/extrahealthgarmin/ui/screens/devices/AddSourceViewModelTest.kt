@@ -17,6 +17,7 @@ import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSource
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSourceStore
+import com.zamotkin.extrahealthgarmin.devices.store.FileConnectedSourceStore
 import com.zamotkin.extrahealthgarmin.health.HealthPermissions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -126,6 +127,7 @@ class AddSourceViewModelTest {
 
     private class FakeStore(var sources: List<ConnectedSource> = emptyList()) : ConnectedSourceStore {
         val saved = mutableListOf<List<ConnectedSource>>()
+        val added = mutableListOf<ConnectedSource>()
         var failSave = false
 
         override fun load(): List<ConnectedSource> = sources
@@ -134,6 +136,19 @@ class AddSourceViewModelTest {
             if (failSave) return false
             saved += sources
             this.sources = sources
+            return true
+        }
+
+        /**
+         * Mirrors the production [FileConnectedSourceStore] override: one
+         * atomic append that never routes through the whole-list [save]
+         * seam - which is what lets the tests see a ViewModel that writes
+         * whole stale lists (task xlg.16).
+         */
+        override fun add(source: ConnectedSource): Boolean {
+            if (failSave) return false
+            added += source
+            sources = sources + source
             return true
         }
     }
@@ -414,9 +429,11 @@ class AddSourceViewModelTest {
         assertEquals(1, storedKeys.size)
         assertEquals("key-ble", storedKeys[0].first)
         assertArrayEquals("1234567890123456".toByteArray(), storedKeys[0].second)
-        assertEquals(1, store.saved.size)
-        assertEquals(2, store.saved[0].size) // existing sources are preserved
-        assertEquals(existing, store.saved[0][0])
+        // Task xlg.16: the save is one row-atomic add - never a whole-list
+        // save the ViewModel built from a stale load.
+        assertEquals(1, store.added.size)
+        assertTrue(store.saved.isEmpty())
+        assertEquals(listOf(existing, done.source), store.sources) // existing rows preserved
         val saved = done.source
         assertEquals("key-ble", saved.sourceTypeId)
         assertEquals("OMRON M7", saved.name)
@@ -425,7 +442,34 @@ class AddSourceViewModelTest {
         assertEquals(2, saved.userSlot) // the one-time pick (task xlg.4)
         assertEquals(SyncMode.HISTORY, saved.syncMode)
         assertEquals(nowMs, saved.createdAt)
-        assertEquals(saved, store.saved[0][1])
+        assertEquals(saved, store.added[0])
+    }
+
+    @Test
+    fun `the save keeps a row-level update that landed while the flow was running`() {
+        // A background read pass updates an existing row between the flow's
+        // start and the save - the row-atomic add must not revert it (the
+        // old whole-list save rewrote every row from a fresh-but-then-stale
+        // load under a true race).
+        val existing = ConnectedSource(
+            id = "existing",
+            sourceTypeId = "hc",
+            name = "hc",
+            createdAt = 1L
+        )
+        store.sources = listOf(existing)
+        val vm = newViewModel()
+        inPairingWithDevice(vm)
+        vm.selectUserSlot(1)
+        store.sources = listOf(existing.copy(lastReadAnchor = 42L, fullReadFallbackPending = true))
+        vm.submitPairingKey("1234567890123456")
+
+        assertTrue(vm.uiState.value is AddSourceUiState.Done)
+        assertEquals(1, store.added.size)
+        assertTrue(store.saved.isEmpty())
+        val survivor = store.sources.first { it.id == "existing" }
+        assertEquals(42L, survivor.lastReadAnchor)
+        assertTrue(survivor.fullReadFallbackPending)
     }
 
     @Test
@@ -480,6 +524,7 @@ class AddSourceViewModelTest {
         vm.submitPairingKey("1234567890123456")
         val state = vm.uiState.value as AddSourceUiState.Error
         assertEquals(R.string.add_source_save_error, state.messageRes)
+        assertTrue(store.added.isEmpty())
     }
 
     // ---- user-slot pick (task xlg.4) -------------------------------- //
@@ -552,7 +597,7 @@ class AddSourceViewModelTest {
         vm.submitPairingKey("1234567890123456")
         val saved = (vm.uiState.value as AddSourceUiState.Done).source
         assertEquals(2, saved.userSlot)
-        assertEquals(2, store.saved[0].single().userSlot)
+        assertEquals(2, store.added.single().userSlot)
     }
 
     @Test
@@ -606,7 +651,7 @@ class AddSourceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         vm.onHcPermissionsResult(setOf(HealthPermissions.READ_BLOOD_PRESSURE))
         assertTrue(vm.uiState.value is AddSourceUiState.Done)
-        assertEquals(1, store.saved.size)
+        assertEquals(1, store.added.size)
     }
 
     @Test

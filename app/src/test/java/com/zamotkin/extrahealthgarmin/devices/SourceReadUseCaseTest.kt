@@ -54,6 +54,13 @@ import org.junit.rules.TemporaryFolder
  * journal: the source's read never advances it; the use case commits it
  * only after storeReadings confirmed the rows are in Room, so a DAO
  * failure re-delivers (worst case one duplicate row, never silent loss).
+ *
+ * Task xlg.16 (the xlg.5 review) pins the cancellation/failure window
+ * around that counter reset: the fallback flag must be durable BEFORE the
+ * Current plan runs (a cancelled or process-killed pass has consumed the
+ * window with nothing recorded), a DAO failure (StoreResult.success
+ * false) must advance no anchor and clear no flag, and the deferred
+ * journal commit and the flag/journal recovery interleave losslessly.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SourceReadUseCaseTest {
@@ -201,6 +208,7 @@ class SourceReadUseCaseTest {
     private companion object {
         const val SLOTS_TYPE = "fake-slots"
         const val NONE_TYPE = "fake-none"
+        const val NONE_DUAL_TYPE = "fake-none-dual"
         const val BLE1810_LIKE_TYPE = "fake-1810"
 
         val SLOTS_CAPABILITIES = SourceCapabilities(
@@ -212,6 +220,18 @@ class SourceReadUseCaseTest {
         val NONE_CAPABILITIES = SourceCapabilities(
             userAttribution = UserAttribution.NONE,
             supportedSyncModes = setOf(SyncMode.CURRENT),
+            requiresPairingKey = false
+        )
+
+        /**
+         * App-owner attribution with BOTH modes - the hypothetical
+         * Current-capable deferred-commit source the xlg.16 interleaving
+         * tests need (today's real one, the 0x1810 driver, is
+         * History-only).
+         */
+        val NONE_DUAL_CAPABILITIES = SourceCapabilities(
+            userAttribution = UserAttribution.NONE,
+            supportedSyncModes = setOf(SyncMode.HISTORY, SyncMode.CURRENT),
             requiresPairingKey = false
         )
 
@@ -227,6 +247,7 @@ class SourceReadUseCaseTest {
         listOf(
             FakeType(SLOTS_TYPE, SLOTS_CAPABILITIES),
             FakeType(NONE_TYPE, NONE_CAPABILITIES),
+            FakeType(NONE_DUAL_TYPE, NONE_DUAL_CAPABILITIES),
             FakeType(BLE1810_LIKE_TYPE, BLE1810_LIKE_CAPABILITIES),
         )
     )
@@ -922,4 +943,262 @@ class SourceReadUseCaseTest {
         assertTrue(outcome.result is SourceReadResult.Success)
         assertEquals(OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0), outcome.stored)
     }
+
+    // ------------------------------------------------------------------ //
+    //  Cancellation and DAO-failure windows (task xlg.16, xlg.5 review)  //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `a cancelled current pass persists the fallback flag before the cancellation escapes`() =
+        runTest {
+            // The xlg.5 review's major finding: a Current pass cancelled
+            // after the Omron device reset its unread counters (mid-session)
+            // but before Room committed wrote NO flag - the
+            // CancellationException rethrow escaped unflagged. The xlg.16
+            // fix flags BEFORE the plan runs, so the flag is already durable
+            // when the cancellation escapes read().
+            val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+            val store = FakeStore(listOf(source))
+            val cancelledMidSession = object : BpSource {
+                override val sourceTypeId: String = SLOTS_TYPE
+                override val displayNameRes: Int get() = 0
+                override val capabilities: SourceCapabilities = SLOTS_CAPABILITIES
+                override suspend fun read(request: SourceReadRequest): SourceReadResult =
+                    throw CancellationException("cancelled after the counter reset")
+            }
+
+            try {
+                newUseCase(sourceFor = { cancelledMidSession }, store = store).read(source)
+                fail("CancellationException must propagate out of read")
+            } catch (e: CancellationException) {
+                // expected - and the flag must already be persisted
+            }
+
+            val row = store.sources.single()
+            assertTrue(row.fullReadFallbackPending)
+            assertNull(row.lastReadAnchor) // no state advanced
+            assertEquals(SyncMode.CURRENT, row.syncMode) // the configured mode is never rewritten
+        }
+
+    @Test
+    fun `cancellation during the store step keeps the fallback flag`() = runTest {
+        // The persist segment is equally in the window: a cancellation
+        // hitting storeReadings (the repository rethrows
+        // CancellationException) leaves the batch in Room or not - either
+        // way the pre-plan flag must survive so the next pass re-reads the
+        // full ring instead of trusting the window.
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        slotsAdapter.result = SourceReadResult.Success(listOf(reading(9_000, userSlot = 1)))
+        dao.failure = CancellationException("cancelled while persisting")
+
+        assertTrue(
+            runCatching { newUseCase(store = store).read(source) }.isFailure
+        )
+
+        val row = store.sources.single()
+        assertTrue(row.fullReadFallbackPending)
+        assertNull(row.lastReadAnchor)
+    }
+
+    @Test
+    fun `a pre-source cancellation flags the fallback and one full-ring pass resumes current`() =
+        runTest {
+            // The designed cost of flagging up front (the xlg.16 preferred
+            // fix): even a cancellation that struck BEFORE the device
+            // consumed anything sets the flag - the next pass runs ONE
+            // full-ring History plan, and Current resumes after it. The
+            // process-death window is the same shape: the flag write is
+            // durable before the session starts, so a killed process
+            // re-reads the ring on the next launch.
+            val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+            val store = FakeStore(listOf(source))
+            var cancelReads = true
+            val adapter = object : BpSource {
+                val requests = mutableListOf<SourceReadRequest>()
+                override val sourceTypeId: String = SLOTS_TYPE
+                override val displayNameRes: Int get() = 0
+                override val capabilities: SourceCapabilities = SLOTS_CAPABILITIES
+                override suspend fun read(request: SourceReadRequest): SourceReadResult {
+                    requests += request
+                    if (cancelReads) throw CancellationException("cancelled before the session")
+                    return SourceReadResult.Success(listOf(reading(7_000, userSlot = 1)))
+                }
+            }
+            val useCase = newUseCase(sourceFor = { adapter }, store = store)
+
+            assertTrue(runCatching { useCase.read(source) }.isFailure)
+            assertTrue(store.sources.single().fullReadFallbackPending)
+
+            cancelReads = false
+            val recovery = useCase.read(source)
+
+            assertEquals(SyncMode.HISTORY, adapter.requests.last().syncMode) // one full-ring plan
+            assertEquals(
+                OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0),
+                recovery.stored
+            )
+            val recovered = store.sources.single()
+            assertFalse(recovered.fullReadFallbackPending) // cleared by the successful store
+            assertEquals(7_000L, recovered.lastReadAnchor)
+
+            useCase.read(source)
+
+            assertEquals(SyncMode.CURRENT, adapter.requests.last().syncMode) // Current resumed
+            assertEquals(SyncMode.CURRENT, store.sources.single().syncMode) // the stored mode never changed
+        }
+
+    @Test
+    fun `a cancelled current pass of a history-less source sets no fallback`() = runTest {
+        // Health Connect shape: no History support means no fallback - the
+        // source's own anchor (the changes token) advances only on success,
+        // so a cancelled pass re-reads exactly what it missed. The pre-plan
+        // write must respect that boundary too.
+        val source = aNoneSource()
+        val store = FakeStore(listOf(source))
+        val cancelled = object : BpSource {
+            override val sourceTypeId: String = NONE_TYPE
+            override val displayNameRes: Int get() = 0
+            override val capabilities: SourceCapabilities = NONE_CAPABILITIES
+            override suspend fun read(request: SourceReadRequest): SourceReadResult =
+                throw CancellationException("provider ipc died")
+        }
+
+        assertTrue(
+            runCatching { newUseCase(sourceFor = { cancelled }, store = store).read(source) }.isFailure
+        )
+
+        assertFalse(store.sources.single().fullReadFallbackPending)
+    }
+
+    @Test
+    fun `a dao failure on a current pass keeps the fallback flag and the anchor`() = runTest {
+        // The xlg.5 review's finding 2 on a plain Current pass: the device
+        // consumed its window, Room holds nothing of it (success false) -
+        // advancing the anchor or clearing the flag here would lose that
+        // window for good.
+        val source = aSlotsSource(userSlot = 1)
+            .copy(syncMode = SyncMode.CURRENT, lastReadAnchor = 3_000L)
+        val store = FakeStore(listOf(source))
+        slotsAdapter.result = SourceReadResult.Success(listOf(reading(9_000, userSlot = 1)))
+        dao.failure = IllegalStateException("disk I/O error")
+
+        val outcome = newUseCase(store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Success)
+        assertEquals(false, outcome.stored?.success)
+        val row = store.sources.single()
+        assertTrue(row.fullReadFallbackPending) // the pre-plan flag survives the DAO failure
+        assertEquals(3_000L, row.lastReadAnchor) // nothing advanced
+        assertEquals(SyncMode.CURRENT, row.syncMode)
+    }
+
+    @Test
+    fun `a dao failure on the full-ring recovery pass keeps the fallback flag and the anchor`() =
+        runTest {
+            // Finding 2's named scenario: the recovery History pass consumed
+            // the window the failed Current pass may have lost; if its store
+            // then fails silently (success false, nothing written), clearing
+            // the flag and advancing the anchor would discard that window.
+            val source = aSlotsSource(userSlot = 1)
+                .copy(syncMode = SyncMode.CURRENT, lastReadAnchor = 3_000L)
+            val store = FakeStore(listOf(source))
+            val useCase = newUseCase(store = store)
+            slotsAdapter.result = SourceReadResult.Failed("link dropped after the counter reset")
+            useCase.read(source) // the Current pass fails; the flag is set
+            assertTrue(store.sources.single().fullReadFallbackPending)
+
+            // The recovery pass re-reads the whole ring and delivers the
+            // lost window - but the DAO fails: nothing was written.
+            dao.failure = IllegalStateException("disk I/O error")
+            slotsAdapter.result = SourceReadResult.Success(listOf(reading(9_000, userSlot = 1)))
+
+            val outcome = useCase.read(source)
+
+            assertEquals(SyncMode.HISTORY, slotsAdapter.requests.last().syncMode)
+            assertEquals(false, outcome.stored?.success)
+            val row = store.sources.single()
+            assertTrue(row.fullReadFallbackPending) // stays: the next pass re-runs the full ring
+            assertEquals(3_000L, row.lastReadAnchor) // unchanged: the window is not ingested
+        }
+
+    @Test
+    fun `a dao failure on a current pass of a deferred-commit source defers the journal and the retry commits`() =
+        runTest {
+            // The xlg.15/xlg.16 interleaving on a (hypothetical
+            // Current-capable) deferred-commit source: a Current pass whose
+            // store fails must keep BOTH its journal uncommitted (xlg.15:
+            // no commit without a confirmed store) and the fallback flag
+            // set (xlg.16: no state advance without one) - the full-ring
+            // retry then re-delivers, stores and commits, in that order.
+            val deferred = object : BpSource, DeferredCommitSource {
+                val requests = mutableListOf<SourceReadRequest>()
+                var commits = 0
+                var result: SourceReadResult = SourceReadResult.Success(emptyList())
+                override val sourceTypeId: String = NONE_DUAL_TYPE
+                override val displayNameRes: Int get() = 0
+                override val capabilities: SourceCapabilities = NONE_DUAL_CAPABILITIES
+                override suspend fun read(request: SourceReadRequest): SourceReadResult {
+                    requests += request
+                    return result
+                }
+
+                override fun commitDelivered() {
+                    commits++
+                }
+            }
+            val source = ConnectedSource(
+                id = "source-dual",
+                sourceTypeId = NONE_DUAL_TYPE,
+                name = NONE_DUAL_TYPE,
+                syncMode = SyncMode.CURRENT,
+                createdAt = 1L,
+            )
+            val store = FakeStore(listOf(source))
+            val useCase = newUseCase(sourceFor = { deferred }, store = store)
+            deferred.result = SourceReadResult.Success(
+                listOf(reading(9_000, userSlot = BpReading.APP_OWNER_SLOT))
+            )
+            dao.failure = IllegalStateException("disk I/O error")
+
+            val failed = useCase.read(source)
+
+            assertEquals(SyncMode.CURRENT, deferred.requests.single().syncMode)
+            assertEquals(false, failed.stored?.success)
+            assertEquals(0, deferred.commits) // xlg.15: no commit without a confirmed store
+            assertTrue(store.sources.single().fullReadFallbackPending) // xlg.16: the flag stays
+
+            dao.failure = null
+            val retry = useCase.read(source)
+
+            assertEquals(SyncMode.HISTORY, deferred.requests.last().syncMode) // full-ring retry
+            assertEquals(
+                OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0),
+                retry.stored
+            )
+            assertEquals(1, deferred.commits) // committed only after the confirmed store
+            val row = store.sources.single()
+            assertFalse(row.fullReadFallbackPending) // cleared by the same confirmed pass
+            assertEquals(9_000L, row.lastReadAnchor)
+        }
+
+    @Test
+    fun `a successful history pass of a history-mode source clears a stale fallback flag`() =
+        runTest {
+            // "Cleared only in advanceReadState" must not strand the flag
+            // when the user's configured mode is History: any successful
+            // pass clears it.
+            val source = aSlotsSource(userSlot = 1)
+                .copy(syncMode = SyncMode.HISTORY, fullReadFallbackPending = true)
+            val store = FakeStore(listOf(source))
+            slotsAdapter.result = SourceReadResult.Success(listOf(reading(5_000, userSlot = 1)))
+
+            val outcome = newUseCase(store = store).read(source)
+
+            assertEquals(SyncMode.HISTORY, slotsAdapter.requests.single().syncMode) // the user's mode
+            assertTrue(outcome.result is SourceReadResult.Success)
+            val row = store.sources.single()
+            assertFalse(row.fullReadFallbackPending)
+            assertEquals(5_000L, row.lastReadAnchor)
+        }
 }

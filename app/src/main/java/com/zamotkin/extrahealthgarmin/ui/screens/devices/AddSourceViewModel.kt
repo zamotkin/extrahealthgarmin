@@ -419,7 +419,6 @@ open class AddSourceViewModel(
         userSlot: Int?,
     ) {
         _uiState.value = AddSourceUiState.Saving
-        val existing = store.load()
         val source = ConnectedSource(
             id = UUID.randomUUID().toString(),
             sourceTypeId = option.typeId,
@@ -436,7 +435,11 @@ open class AddSourceViewModel(
             syncMode = defaultSyncMode(option),
             createdAt = clock(),
         )
-        val saved = store.save(existing + source)
+        // Row-atomic append (task xlg.16): the old whole-list
+        // load-modify-save could silently revert a row-level write (anchor,
+        // fallback flag, mode toggle) a background read pass landed between
+        // its load and its save.
+        val saved = store.add(source)
         _uiState.value = if (saved) {
             AddSourceUiState.Done(source)
         } else {
