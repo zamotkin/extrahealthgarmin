@@ -127,7 +127,7 @@ object Ble1810MeasurementParser {
 
     /** Wire pressure to mmHg, normalizing kPa when the units bit is set. */
     private fun toMmHg(value: Double, kPa: Boolean): Int {
-        val mmHg = if (kPa) value * Ble1810Protocol.KPA_PER_MMHG else value
+        val mmHg = if (kPa) value * Ble1810Protocol.MMHG_PER_KPA else value
         if (mmHg < 0) throw MalformedFrameException("negative pressure: $mmHg")
         return mmHg.roundToInt()
     }

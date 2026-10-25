@@ -31,13 +31,46 @@ import kotlinx.coroutines.sync.withLock
  *   (Success, ConnectionRequired, Timeout, Disconnected, Failed) passes
  *   through unchanged, so callers can render each state; a use-case-level
  *   failure (unknown type, no source instance) folds onto Failed.
- * @property stored the repository's insert/duplicate count; null when
- *   nothing was stored (not a Success, or a pass that read nothing).
+ * @property stored the repository's insert/duplicate count; null when the
+ *   pass never reached the store step (not a Success).
+ *   [OmronBpRepository.StoreResult.success] false inside marks a store that
+ *   wrote nothing — a DAO failure the pass survives with its readings
+ *   re-deliverable (task xlg.15).
  */
 data class SourceReadOutcome(
     val result: SourceReadResult,
     val stored: OmronBpRepository.StoreResult? = null,
 )
+
+/**
+ * Opt-in seam for [BpSource] implementations whose successful-pass dedup
+ * state must advance only AFTER the caller has persisted the readings the
+ * pass delivered (task tefal2garmin-app-redesign-v3-xlg.15, the xlg.9
+ * review fix): the standard 0x1810 driver's fingerprint journal, which
+ * dedups clock-less records whose identity the storage's unique index
+ * cannot carry (their record time IS the read time, so a re-read would
+ * otherwise insert a new row every pass).
+ *
+ * [BpSource.read] on such a source DEFERS its commit: it returns the
+ * readings and remembers them; the caller runs [commitDelivered] once its
+ * store step confirmed the rows are durable, and stays silent when it did
+ * not — an unpersisted pass then re-delivers everything on the next read.
+ * The residual reverse window (rows stored, the commit lost to a crash)
+ * costs one duplicate row, never a lost reading.
+ *
+ * Contract: [commitDelivered] never throws, journals exactly the delivered
+ * set of the most recent successful read (a repeat call journals nothing
+ * new), and callers serialize reads of one source — the per-source mutex
+ * [SourceReadUseCase] already holds. The orchestrator confirms only when
+ * it stored everything the pass delivered: its user-slot ingestion filter
+ * never drops readings of the [UserAttribution.NONE] sources this seam
+ * targets.
+ */
+interface DeferredCommitSource {
+
+    /** Commits the deferred dedup state of the last successful [BpSource.read]. */
+    fun commitDelivered()
+}
 
 /**
  * Runs one read pass of a connected blood-pressure source into the app's
@@ -48,7 +81,10 @@ data class SourceReadOutcome(
  *  BpSource.read([SourceReadRequest]) with the stored sync mode and user
  *  slot -> the epic-R4 ingestion filter drops readings of other user slots
  *  -> [OmronBpRepository.storeReadings] tags the survivors with the source
- *  id (insert-ignore makes re-reads idempotent).
+ *  id (insert-ignore makes re-reads idempotent) -> a source with deferred
+ *  dedup state ([DeferredCommitSource], the 0x1810 fingerprint journal)
+ *  commits it, but only after that store confirmed the rows are in Room
+ *  (task xlg.15: a store failure leaves the pass fully re-deliverable).
  *
  * Sync modes and read anchors (task xlg.5, epic R5): the mode comes from
  * [ConnectedSource.syncMode] — HISTORY reads the whole device memory
@@ -160,6 +196,15 @@ class SourceReadUseCase(
             OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0)
         } else {
             repository.storeReadings(kept.map { it.toDomainReading() }, source.id)
+        }
+        // Task xlg.15: a source with deferred dedup state (the 0x1810
+        // fingerprint journal) commits it only NOW — the store step
+        // confirmed the rows are in Room. A DAO failure (success false)
+        // commits nothing, so the next pass re-delivers everything (worst
+        // case one duplicate row, never a lost reading); an all-duplicates
+        // store confirms too, because those rows are already durable.
+        if (stored.success && bpSource is DeferredCommitSource) {
+            bpSource.commitDelivered()
         }
         advanceReadState(source, kept)
         return SourceReadOutcome(result = result, stored = stored)

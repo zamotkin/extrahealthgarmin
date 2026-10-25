@@ -24,6 +24,13 @@ import org.junit.rules.TemporaryFolder
  * [Ble1810FingerprintJournal] (HISTORY re-reads must not duplicate), and the
  * registry resolution — ble-standard-1810 plugs into
  * [HealthSyncWiring.sourceRegistry] with no core-class changes.
+ *
+ * Task tefal2garmin-app-redesign-v3-xlg.15 pins the deferred commit
+ * protocol (the xlg.9 review fix): a successful read does NOT consume the
+ * journal — only [Ble1810Source.commitDelivered] does, which the read
+ * orchestrator runs after the storage step confirmed the insert. An
+ * unconfirmed pass re-delivers; the worst case is one duplicate row, never
+ * a lost reading.
  */
 class Ble1810SourceTest {
 
@@ -182,17 +189,53 @@ class Ble1810SourceTest {
     // ------------------------------------------------------------------ //
 
     @Test
-    fun `a timestamp-less burst is delivered once, re-reads deliver nothing new`() = runTest {
+    fun `a successful read does not consume the journal`() = runTest {
+        // Task xlg.15: the commit is deferred to the caller — read() alone
+        // must leave the burst re-deliverable, because the store that has
+        // to confirm it runs only after read() returns (a store failure or
+        // a crash before the commit must never lose readings).
         val source = source()
-        val burst = listOf(measurement(120), measurement(125))
-        bleResult = Ble1810Result.Success(burst, null, null, 0, 0, 0)
+        bleResult = Ble1810Result.Success(listOf(measurement(120), measurement(125)), null, null, 0, 0, 0)
 
-        val firstPass = source.read(SourceReadRequest(SyncMode.HISTORY))
-        val secondPass = source.read(SourceReadRequest(SyncMode.HISTORY))
+        val firstPass = source.read(SourceReadRequest(SyncMode.HISTORY)) as SourceReadResult.Success
+        val unconfirmedReRead = source.read(SourceReadRequest(SyncMode.HISTORY)) as SourceReadResult.Success
 
-        assertEquals(2, (firstPass as SourceReadResult.Success).readings.size)
-        assertTrue(secondPass is SourceReadResult.Success)
-        assertTrue((secondPass as SourceReadResult.Success).readings.isEmpty())
+        assertEquals(2, firstPass.readings.size)
+        assertEquals(2, unconfirmedReRead.readings.size) // nothing consumed yet
+    }
+
+    @Test
+    fun `commitDelivered consumes the journal, re-reads deliver nothing new`() = runTest {
+        val source = source()
+        bleResult = Ble1810Result.Success(listOf(measurement(120), measurement(125)), null, null, 0, 0, 0)
+
+        val firstPass = source.read(SourceReadRequest(SyncMode.HISTORY)) as SourceReadResult.Success
+        source.commitDelivered()
+        val secondPass = source.read(SourceReadRequest(SyncMode.HISTORY)) as SourceReadResult.Success
+
+        assertEquals(2, firstPass.readings.size)
+        assertTrue(secondPass.readings.isEmpty())
+    }
+
+    @Test
+    fun `a repeated commitDelivered does not double-count the burst`() = runTest {
+        // The commit consumes the pending set: a double confirmation must
+        // not journal the burst twice — over-counting would filter out a
+        // genuinely new identical reading later.
+        val source = source()
+        bleResult = Ble1810Result.Success(listOf(measurement(120)), null, null, 0, 0, 0)
+        source.read(SourceReadRequest(SyncMode.HISTORY))
+        source.commitDelivered()
+        source.commitDelivered()
+
+        // One journaled occurrence: the next burst of two identical
+        // readings still delivers its second member.
+        bleResult = Ble1810Result.Success(
+            listOf(measurement(120), measurement(120)), null, null, 0, 0, 0
+        )
+        val next = source.read(SourceReadRequest(SyncMode.HISTORY)) as SourceReadResult.Success
+
+        assertEquals(1, next.readings.size)
     }
 
     @Test
@@ -202,6 +245,7 @@ class Ble1810SourceTest {
             listOf(measurement(120), measurement(125)), null, null, 0, 0, 0
         )
         source.read(SourceReadRequest(SyncMode.HISTORY))
+        source.commitDelivered()
 
         bleResult = Ble1810Result.Success(
             listOf(measurement(120), measurement(125), measurement(130)), null, null, 0, 0, 0
@@ -237,7 +281,8 @@ class Ble1810SourceTest {
         val retry = source.read(SourceReadRequest(SyncMode.HISTORY)) as SourceReadResult.Success
         assertEquals(1, retry.readings.size)
 
-        // Only the successful retry consumed the burst.
+        // Only the CONFIRMED retry consumed the burst.
+        source.commitDelivered()
         val reRead = source.read(SourceReadRequest(SyncMode.HISTORY)) as SourceReadResult.Success
         assertTrue(reRead.readings.isEmpty())
     }

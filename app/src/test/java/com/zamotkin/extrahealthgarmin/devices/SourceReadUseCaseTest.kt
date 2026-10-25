@@ -8,6 +8,11 @@ import com.zamotkin.extrahealthgarmin.devices.api.SourceReadRequest
 import com.zamotkin.extrahealthgarmin.devices.api.SourceReadResult
 import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
+import com.zamotkin.extrahealthgarmin.devices.ble1810.Ble1810FingerprintJournal
+import com.zamotkin.extrahealthgarmin.devices.ble1810.Ble1810Measurement
+import com.zamotkin.extrahealthgarmin.devices.ble1810.Ble1810MeasurementStatus
+import com.zamotkin.extrahealthgarmin.devices.ble1810.Ble1810Result
+import com.zamotkin.extrahealthgarmin.devices.ble1810.Ble1810Source
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSource
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSourceStore
 import com.zamotkin.extrahealthgarmin.omron.data.BloodPressureDao
@@ -24,7 +29,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * [SourceReadUseCase] tests (task tefal2garmin-app-redesign-v3-xlg.4): the
@@ -42,9 +49,18 @@ import org.junit.Test
  * runs one full-ring History plan - the Omron counter-reset edge, where a
  * failure after the mid-session reset discards readings the device
  * already counted as read, must cost a slow re-read, never data.
+ *
+ * Task xlg.15 pins the deferred-commit protocol of the 0x1810 fingerprint
+ * journal: the source's read never advances it; the use case commits it
+ * only after storeReadings confirmed the rows are in Room, so a DAO
+ * failure re-delivers (worst case one duplicate row, never silent loss).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SourceReadUseCaseTest {
+
+    /** The 0x1810 fixture's fingerprint journal file lives here (per test). */
+    @get:Rule
+    val tmp = TemporaryFolder()
 
     // ------------------------------------------------------------------ //
     //  Fakes                                                             //
@@ -185,6 +201,7 @@ class SourceReadUseCaseTest {
     private companion object {
         const val SLOTS_TYPE = "fake-slots"
         const val NONE_TYPE = "fake-none"
+        const val BLE1810_LIKE_TYPE = "fake-1810"
 
         val SLOTS_CAPABILITIES = SourceCapabilities(
             userAttribution = UserAttribution.SLOTS,
@@ -197,10 +214,21 @@ class SourceReadUseCaseTest {
             supportedSyncModes = setOf(SyncMode.CURRENT),
             requiresPairingKey = false
         )
+
+        /** The standard 0x1810 shape: app-owner attribution, History only. */
+        val BLE1810_LIKE_CAPABILITIES = SourceCapabilities(
+            userAttribution = UserAttribution.NONE,
+            supportedSyncModes = setOf(SyncMode.HISTORY),
+            requiresPairingKey = false
+        )
     }
 
     private val registry = SourceRegistry(
-        listOf(FakeType(SLOTS_TYPE, SLOTS_CAPABILITIES), FakeType(NONE_TYPE, NONE_CAPABILITIES))
+        listOf(
+            FakeType(SLOTS_TYPE, SLOTS_CAPABILITIES),
+            FakeType(NONE_TYPE, NONE_CAPABILITIES),
+            FakeType(BLE1810_LIKE_TYPE, BLE1810_LIKE_CAPABILITIES),
+        )
     )
     private val dao = FakeBpDao()
     private val errors = mutableListOf<Throwable>()
@@ -209,6 +237,9 @@ class SourceReadUseCaseTest {
         RecordingSource(SLOTS_TYPE, SLOTS_CAPABILITIES, SourceReadResult.Success(emptyList()))
     private val noneAdapter =
         RecordingSource(NONE_TYPE, NONE_CAPABILITIES, SourceReadResult.Success(emptyList()))
+
+    /** What the faked 0x1810 read pushes on every pass (History re-push model). */
+    private var bleMeasurements: List<Ble1810Measurement> = emptyList()
 
     private fun newUseCase(
         sourceFor: (ConnectedSource) -> BpSource? = { source ->
@@ -251,6 +282,48 @@ class SourceReadUseCaseTest {
         diastolic = 80,
         pulse = 70,
         userSlot = userSlot,
+    )
+
+    /**
+     * The real 0x1810 adapter over a faked BLE read and the REAL per-device
+     * fingerprint journal — exactly what [SourceReadUseCase.create] builds
+     * per pass (a fresh source + journal instance over the one file), so
+     * the deferred-commit protocol is proven against production wiring.
+     */
+    private fun ble1810Source(): Ble1810Source = Ble1810Source(
+        bleRead = {
+            Ble1810Result.Success(bleMeasurements, feature = null, deviceDescription = null, 0, 0, 0)
+        },
+        journal = Ble1810FingerprintJournal.inFilesDir(tmp.root, "AA:BB:CC:DD:EE:10")
+    )
+
+    private fun newBle1810UseCase(store: ConnectedSourceStore): SourceReadUseCase =
+        newUseCase(sourceFor = { ble1810Source() }, store = store)
+
+    private fun an1810Source() = ConnectedSource(
+        id = "source-1810",
+        sourceTypeId = BLE1810_LIKE_TYPE,
+        name = "Standard BLE",
+        syncMode = SyncMode.HISTORY,
+        createdAt = 1L,
+    )
+
+    /** A clock-less 0x1810 record: no device clock, so [readTime] IS the record time. */
+    private fun clocklessMeasurement(systolic: Int, readTime: Long) = Ble1810Measurement(
+        systolicMmHg = systolic,
+        diastolicMmHg = 80,
+        mapMmHg = 102,
+        pulseBpm = 64,
+        timestampEpochSec = readTime,
+        timestampFromDeviceClock = false,
+        userId = null,
+        status = Ble1810MeasurementStatus(
+            bodyMovement = false,
+            cuffTooLoose = false,
+            irregularPulse = false,
+            improperPosition = false,
+            raw = 0
+        )
     )
 
     // ------------------------------------------------------------------ //
@@ -365,15 +438,152 @@ class SourceReadUseCaseTest {
     }
 
     @Test
-    fun `a dao failure during store reports zero counts without throwing`() = runTest {
+    fun `a dao failure during store reports zero counts and failure without throwing`() = runTest {
         dao.failure = IllegalStateException("disk I/O error")
         slotsAdapter.result = SourceReadResult.Success(listOf(reading(1_000, userSlot = 1)))
 
         val outcome = newUseCase().read(aSlotsSource(userSlot = 1))
 
+        // Task xlg.15: success false is what tells a failed store from an
+        // all-duplicates one — the signal the deferred journal commit keys on.
         assertTrue(outcome.result is SourceReadResult.Success)
-        assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0), outcome.stored)
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0, success = false),
+            outcome.stored
+        )
         assertEquals(1, errors.size)
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Deferred journal commit (task xlg.15, xlg.9 review fix)           //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * The xlg.9 review's data-loss regression: the 0x1810 fingerprint
+     * journal must NOT advance inside the source's read — the use case
+     * stores the readings only afterwards, and a swallowed DAO failure
+     * would otherwise filter the clock-less records out of every later
+     * HISTORY pass, losing them permanently behind a Success outcome (no
+     * code ever deletes the journal file, so there is no recovery path).
+     */
+    @Test
+    fun `a dao failure during store leaves the journal uncommitted and the next pass re-delivers`() =
+        runTest {
+            val store = FakeStore(listOf(an1810Source()))
+            val useCase = newBle1810UseCase(store)
+            bleMeasurements = listOf(
+                clocklessMeasurement(120, readTime = 1_000),
+                clocklessMeasurement(125, readTime = 1_001),
+            )
+            dao.failure = IllegalStateException("disk I/O error")
+
+            val failed = useCase.read(an1810Source())
+
+            assertTrue(failed.result is SourceReadResult.Success)
+            assertEquals(
+                OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0, success = false),
+                failed.stored
+            )
+            assertTrue(dao.rows.isEmpty()) // the failure wrote nothing
+
+            dao.failure = null
+            val retry = useCase.read(an1810Source())
+
+            // The journal never advanced: the same History re-push
+            // re-delivers everything, and this time the rows land in Room.
+            assertEquals(
+                OmronBpRepository.StoreResult(insertedCount = 2, duplicatesCount = 0),
+                retry.stored
+            )
+            assertEquals(2, dao.rows.size)
+        }
+
+    @Test
+    fun `a confirmed store commits the fingerprint journal`() = runTest {
+        val useCase = newBle1810UseCase(FakeStore(listOf(an1810Source())))
+        bleMeasurements = listOf(
+            clocklessMeasurement(120, readTime = 1_000),
+            clocklessMeasurement(125, readTime = 1_001),
+        )
+
+        val first = useCase.read(an1810Source())
+
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 2, duplicatesCount = 0),
+            first.stored
+        )
+
+        // The journal advanced with the store: the same re-push delivers
+        // nothing new and inserts no duplicate rows.
+        val second = useCase.read(an1810Source())
+        assertTrue(second.result is SourceReadResult.Success)
+        assertTrue((second.result as SourceReadResult.Success).readings.isEmpty())
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0), second.stored)
+        assertEquals(2, dao.rows.size)
+    }
+
+    @Test
+    fun `an all-duplicates store still commits the fingerprint journal`() = runTest {
+        // Room already holds the rows this pass delivers — the reverse
+        // window of a previous pass that stored them but crashed before its
+        // journal commit. Zero inserted is NOT a failure: the rows ARE
+        // durable, so the journal must advance (this is why StoreResult
+        // carries an explicit success signal instead of "inserted > 0").
+        dao.rows += listOf(
+            BloodPressureRecordEntity(
+                timestampEpochSec = 1_000, systolic = 120, diastolic = 80, pulse = 64,
+                mov = false, ihb = false, userSlot = BpReading.APP_OWNER_SLOT, sourceId = "source-1810"
+            ),
+            BloodPressureRecordEntity(
+                timestampEpochSec = 1_001, systolic = 125, diastolic = 80, pulse = 64,
+                mov = false, ihb = false, userSlot = BpReading.APP_OWNER_SLOT, sourceId = "source-1810"
+            ),
+        )
+        val useCase = newBle1810UseCase(FakeStore(listOf(an1810Source())))
+        bleMeasurements = listOf(
+            clocklessMeasurement(120, readTime = 1_000),
+            clocklessMeasurement(125, readTime = 1_001),
+        )
+
+        val outcome = useCase.read(an1810Source())
+
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 2, success = true),
+            outcome.stored
+        )
+
+        // Committed: a re-push delivers nothing new.
+        val second = useCase.read(an1810Source())
+        assertTrue((second.result as SourceReadResult.Success).readings.isEmpty())
+        assertEquals(2, dao.rows.size)
+    }
+
+    @Test
+    fun `a crash between store and commit costs one duplicate row, never a loss`() = runTest {
+        // The accepted worst case: the dying pass DID store its row, but its
+        // journal commit never ran — the next process finds Room populated
+        // and a journal that knows nothing. The re-push (clock-less records
+        // carry the NEW read time) inserts one duplicate row for the same
+        // physical measurement; a reading is never lost.
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 5_000, systolic = 120, diastolic = 80, pulse = 64,
+            mov = false, ihb = false, userSlot = BpReading.APP_OWNER_SLOT, sourceId = "source-1810"
+        )
+        val useCase = newBle1810UseCase(FakeStore(listOf(an1810Source())))
+        bleMeasurements = listOf(clocklessMeasurement(120, readTime = 9_000))
+
+        val outcome = useCase.read(an1810Source())
+
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0),
+            outcome.stored
+        )
+        assertEquals(2, dao.rows.size) // the old row + the re-delivered one
+
+        // And this pass's commit holds: a further re-push delivers nothing.
+        val third = useCase.read(an1810Source())
+        assertTrue((third.result as SourceReadResult.Success).readings.isEmpty())
+        assertEquals(2, dao.rows.size)
     }
 
     // ------------------------------------------------------------------ //

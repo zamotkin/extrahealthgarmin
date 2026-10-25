@@ -202,6 +202,33 @@ class OmronBpRepositoryTest {
         assertEquals(2, dao.rows.size)
     }
 
+    /**
+     * Task tefal2garmin-app-redesign-v3-xlg.15: zero inserted must not read
+     * as failure — these rows are already durable in Room, which is exactly
+     * what the read orchestrator's deferred journal commit keys on.
+     */
+    @Test
+    fun `an all-duplicates batch reports success with zero inserted`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)))
+
+        val again = repository.storeReadings(listOf(reading(1_000)))
+
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 1, success = true),
+            again
+        )
+        assertEquals(1, dao.rows.size)
+    }
+
+    /** Nothing to write is not a failure either (a pass that read nothing new). */
+    @Test
+    fun `an empty batch reports success`() = runTest {
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0, success = true),
+            repository.storeReadings(emptyList())
+        )
+    }
+
     // ------------------------------------------------------------------ //
     //  sourceId (task tefal2garmin-app-redesign-v3-xlg.2)                 //
     // ------------------------------------------------------------------ //
@@ -439,7 +466,10 @@ class OmronBpRepositoryTest {
         val allForSource = repository.allForSource(sourceId = "source-a")
         val unsyncedForSource = repository.unsyncedForSource(sourceId = "source-a")
 
-        assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0), store)
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0, success = false),
+            store
+        )
         assertEquals(emptyList<BloodPressureReading>(), unsynced)
         assertFalse(marked)
         assertEquals(emptyList<BloodPressureReading>(), latest)

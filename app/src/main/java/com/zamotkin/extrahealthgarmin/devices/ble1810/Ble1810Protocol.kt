@@ -54,8 +54,8 @@ object Ble1810Protocol {
      */
     const val SFLOAT_NAN_WORD = 0x07FF
 
-    /** kPa-to-mmHg conversion factor (units bit, spec §3.1): 1 kPa = 7.50062 mmHg. */
-    const val KPA_PER_MMHG = 7.50062
+    /** mmHg-per-kPa conversion factor (units bit, spec §3.1): 1 kPa = 7.50062 mmHg. */
+    const val MMHG_PER_KPA = 7.50062
 
     /**
      * Window from a successful CCCD write to the first indication. Generous

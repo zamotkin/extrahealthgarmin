@@ -33,15 +33,28 @@ class OmronBpRepository(
      * @property insertedCount rows actually written (their (timestamp,
      *   userSlot) was not in the table yet)
      * @property duplicatesCount rows skipped because the key already existed
+     * @property success whether the DAO batch ran — the disambiguation task
+     *   tefal2garmin-app-redesign-v3-xlg.15 added, because zero inserted
+     *   alone cannot tell "all duplicates / empty batch" (the rows ARE
+     *   durably in Room) from "DAO failed, nothing written". True means the
+     *   counts are authoritative; false means a DAO failure — nothing was
+     *   written and the counts carry no meaning. The never-throw convention
+     *   is unchanged: failures surface on the result, not as exceptions.
      */
-    data class StoreResult(val insertedCount: Int, val duplicatesCount: Int)
+    data class StoreResult(
+        val insertedCount: Int,
+        val duplicatesCount: Int,
+        val success: Boolean = true
+    )
 
     /**
      * Persists [readings] of [sourceId] via insert-ignore: every
      * (timestampEpochSec, userSlot, sourceId) already present is counted as a
      * duplicate and left untouched, everything else is stored as a new
-     * un-synced row. On DAO failure reports [StoreResult] with zero counts —
-     * nothing was written.
+     * un-synced row. On DAO failure reports [StoreResult] with zero counts
+     * and [StoreResult.success] false — nothing was written, and a caller
+     * holding deferred dedup state (the 0x1810 fingerprint journal) must NOT
+     * commit it on that outcome.
      */
     suspend fun storeReadings(
         readings: List<BloodPressureReading>,
@@ -53,7 +66,9 @@ class OmronBpRepository(
                 insertedCount = rowIds.count { it != IGNORED_ROW_ID },
                 duplicatesCount = rowIds.count { it == IGNORED_ROW_ID }
             )
-        }.getOrElse { e -> failed(e) { StoreResult(insertedCount = 0, duplicatesCount = 0) } }
+        }.getOrElse { e ->
+            failed(e) { StoreResult(insertedCount = 0, duplicatesCount = 0, success = false) }
+        }
 
     /**
      * Un-synced readings, oldest first — of one [userSlot] when given, of

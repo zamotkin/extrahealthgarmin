@@ -2,6 +2,7 @@ package com.zamotkin.extrahealthgarmin.devices.ble1810
 
 import android.content.Context
 import com.zamotkin.extrahealthgarmin.R
+import com.zamotkin.extrahealthgarmin.devices.DeferredCommitSource
 import com.zamotkin.extrahealthgarmin.devices.api.BleBpSourceType
 import com.zamotkin.extrahealthgarmin.devices.api.BpReading
 import com.zamotkin.extrahealthgarmin.devices.api.BpSource
@@ -27,8 +28,13 @@ import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
  * unique index and the upload journal (exactly like the Omron ring re-read),
  * and timestamp-less records dedup through the journal here, because their
  * record time is the read time and would otherwise duplicate on every pass.
- * The journal grows only on a successful pass (anchors-never-advance rule):
- * a failed read leaves everything retriable.
+ * The journal grows only on a CONFIRMED pass (task xlg.15, the xlg.9 review
+ * fix): a successful read DEFERS its commit to
+ * [DeferredCommitSource.commitDelivered], which the read orchestrator runs
+ * only after the storage step persisted the readings — a failed read OR a
+ * failed store leaves everything retriable, and the residual reverse window
+ * (rows stored, the commit lost to a crash) costs one duplicate row, never
+ * a lost reading.
  *
  * Attribution is NONE per epic R4: the User ID byte is informational (often
  * 0xFF) and every reading belongs to the app owner.
@@ -36,7 +42,15 @@ import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 class Ble1810Source(
     private val bleRead: suspend () -> Ble1810Result,
     private val journal: Ble1810FingerprintJournal
-) : BpSource {
+) : BpSource, DeferredCommitSource {
+
+    /**
+     * The delivered set of the most recent successful pass, awaiting the
+     * caller's store confirmation. Replaced by every successful read and
+     * consumed by [commitDelivered] — a pass the caller never confirms
+     * simply gets re-delivered by the next one (the journal never advanced).
+     */
+    private var pendingDelivered: List<Ble1810Measurement> = emptyList()
 
     override val sourceTypeId: String = TYPE_ID
     override val displayNameRes: Int = DISPLAY_NAME_RES
@@ -51,7 +65,14 @@ class Ble1810Source(
         return when (val result = bleRead()) {
             is Ble1810Result.Success -> {
                 val delivered = journal.filterUnseen(result.measurements)
-                journal.markSeen(delivered)
+                // Task xlg.15: the journal does NOT advance here. The caller
+                // stores the readings only after read() returns, and a failed
+                // store must leave them re-deliverable — committing now would
+                // filter them out of every later HISTORY pass (permanent
+                // silent loss behind a Success outcome). commitDelivered()
+                // is the deferred commit the caller runs once the store
+                // confirmed.
+                pendingDelivered = delivered
                 SourceReadResult.Success(delivered.map { it.toBpReading() })
             }
             is Ble1810Result.BondingRequired -> SourceReadResult.ConnectionRequired(result.reason)
@@ -59,6 +80,11 @@ class Ble1810Source(
             is Ble1810Result.Disconnected -> SourceReadResult.Disconnected(result.step)
             is Ble1810Result.Failed -> SourceReadResult.Failed(result.reason)
         }
+    }
+
+    override fun commitDelivered() {
+        journal.markSeen(pendingDelivered)
+        pendingDelivered = emptyList()
     }
 
     companion object {
