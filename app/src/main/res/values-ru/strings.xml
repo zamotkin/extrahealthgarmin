@@ -190,4 +190,17 @@
     <string name="settings_connections_title">Подключения</string>
     <string name="settings_connections_sources">Источники давления</string>
     <string name="settings_connections_sources_value">Тонометры и приложения</string>
-    </resources>
+    <!-- Standard BLE Blood Pressure Service driver (devices/ble1810, task
+         tefal2garmin-app-redesign-v3-xlg.9). Display name referenced by
+         Ble1810Source.DISPLAY_NAME_RES; the steps and errors are rendered by
+         the add-source flow / read UI (task xlg.3, xlg.6) — the driver's
+         result variants map onto them. -->
+    <string name="bp_source_type_ble_standard_1810">Стандартный BLE-тонометр</string>
+    <string name="ble1810_pairing_step1">Разбудите тонометр и держите его рядом с телефоном</string>
+    <string name="ble1810_pairing_step2">Подтвердите запрос сопряжения Bluetooth на обоих экранах — тонометр сопрягается через систему, а не через приложение производителя</string>
+    <string name="ble1810_pairing_step3">Нажмите кнопку передачи на тонометре, если показания не начали поступать сами</string>
+    <string name="ble1810_error_bonding">Сопряжение с тонометром не завершено. Попробуйте ещё раз и подтвердите запрос на обоих экранах</string>
+    <string name="ble1810_error_connect">Не удалось подключиться к тонометру. Разбудите его, подойдите ближе и попробуйте снова</string>
+    <string name="ble1810_error_timeout">Тонометр перестал отвечать во время передачи</string>
+    <string name="ble1810_error_disconnected">Связь с тонометром потеряна во время передачи</string>
+</resources>

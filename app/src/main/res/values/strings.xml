@@ -190,4 +190,17 @@
     <string name="settings_connections_title">Connections</string>
     <string name="settings_connections_sources">Blood-pressure sources</string>
     <string name="settings_connections_sources_value">Monitors and apps</string>
-    </resources>
+    <!-- Standard BLE Blood Pressure Service driver (devices/ble1810, task
+         tefal2garmin-app-redesign-v3-xlg.9). Display name referenced by
+         Ble1810Source.DISPLAY_NAME_RES; the steps and errors are rendered by
+         the add-source flow / read UI (task xlg.3, xlg.6) — the driver's
+         result variants map onto them. -->
+    <string name="bp_source_type_ble_standard_1810">Standard BLE blood pressure monitor</string>
+    <string name="ble1810_pairing_step1">Wake the monitor and keep it close to the phone</string>
+    <string name="ble1810_pairing_step2">Confirm the Bluetooth pairing request on both screens — the monitor pairs through the system, not through a vendor app</string>
+    <string name="ble1810_pairing_step3">Press the monitor\'s transfer button if readings do not start arriving by themselves</string>
+    <string name="ble1810_error_bonding">Pairing with the monitor did not complete. Try again and confirm the request on both screens</string>
+    <string name="ble1810_error_connect">Could not connect to the monitor. Wake it up, stay close and try again</string>
+    <string name="ble1810_error_timeout">The monitor stopped responding during the transfer</string>
+    <string name="ble1810_error_disconnected">The connection to the monitor was lost during the transfer</string>
+</resources>

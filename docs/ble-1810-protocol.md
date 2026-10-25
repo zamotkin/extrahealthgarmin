@@ -1,6 +1,6 @@
-# Bluetooth SIG Blood Pressure Service (0x1810) — Generic BLE Driver Specification v0.1 (draft)
+# Bluetooth SIG Blood Pressure Service (0x1810) — Generic BLE Driver Specification v0.2 (draft)
 
-> Status: **v0.1 draft — SIG-verified layout, community-verified behavior.** Every UUID, byte and
+> Status: **v0.2 draft — SIG-verified layout, community-verified behavior, driver v1 implemented.** Every UUID, byte and
 > bit below is verified against the official Bluetooth SIG documents (Blood Pressure Service 1.1.1,
 > Blood Pressure Profile 1.1.1, GATT Specification Supplement, Assigned Numbers; all fetched
 > 2026-10-25). Device behavior is NOT capture-verified by us — the quirks matrix (§4.2) is built
@@ -10,7 +10,13 @@
 > `[UNVERIFIED]` — plausible claim with NO pinned source; treat as assertion, not fact.
 > `[CAPTURE]` — cross-reference to the one on-device capture we own: docs/omron-protocol.md §1.3.
 >
-> This document is the spec of the upcoming **generic standard-GATT driver** for consumer
+> v0.1 (2026-10-25): SIG-verified spec draft. v0.2 (2026-10-25, task
+> tefal2garmin-app-redesign-v3-xlg.9): the layout tables re-verified against the pinned GSS
+> build by direct text extraction (Tables 2.1, 3.52-3.55, 3.144 confirmed byte-for-byte; no
+> corrections), and section 7 added - the implementation notes of the shipped driver
+> (devices/ble1810/).
+>
+> This document is the spec of the **generic standard-GATT driver** for consumer
 > blood-pressure monitors. The vendor driver for the Omron M7 Intelli IT proprietary protocol is
 > specified in docs/omron-protocol.md; the two are complementary (§1.2, §5).
 
@@ -328,7 +334,7 @@ is `[CAPTURE]`-verified yet.
 | SFLOAT `0x07FF` (NaN, §3.2) in Systolic/Diastolic/MAP/Pulse | UA-651BLE streams such indications during the measurement, before the final record `[COMMUNITY]`; boso sends them for display errors ("Err", "Err CUF") — with NO Measurement Status bits set `[COMMUNITY]` — issue #80 | Skip any record whose primary fields are NaN — never store; never infer validity from status bits alone |
 | Transfer semantics differ per device: latest-only vs all-stored vs delete-after-transfer | SBM69 / BM59 / BM85 "Reads multiple"; X4 Smart "Deletes after transfer"; BU 572 "legacy only" `[COMMUNITY]` — docs/bluetooth.md | No re-read assumptions: every record goes through fingerprint + journal dedup (same discipline as `UploadJournal`/`BpUploadJournal`) |
 | Timestamps missing or drifting by minutes | Many units clear Flags bit 1; the boso clock runs "some minutes off" and syncs only via `0x2A08` `[COMMUNITY]` — issue #80 | Fall back to receive time; dedup on (sys, dia, MAP, pulse, status) fingerprints, never on device timestamp alone |
-| Duplicate delivery of the same record | UA-651BLE sent one byte-identical record twice `[COMMUNITY]` | Absorbed by fingerprint dedup |
+| Duplicate delivery of the same record | UA-651BLE sent one byte-identical record twice `[COMMUNITY]` | Absorbed by fingerprint dedup; the session also drops a byte-identical re-delivery of the immediately previous indication (7.3) |
 | User ID absent or `0xFF` | boso log: `userID: null` `[COMMUNITY]` | Ignore for record identity; store as unknown (§3.6) |
 | Clock drift (even when a timestamp is sent) | boso, minutes per drift report `[COMMUNITY]` | Treat device timestamps as advisory; user-visible ordering follows the app's own journal |
 
@@ -367,5 +373,111 @@ class extends §4.2.
 | — docs/bluetooth.md | https://github.com/nobodyfornothing/blood-pressure-monitor-fl/blob/main/docs/bluetooth.md | the community device table (§1.3) and the transfer-semantics taxonomy (§4.2) |
 | — issue #80 | https://github.com/derdilla/blood-pressure-monitor-fl/issues/80 | boso medicus + Omron X7 Smart verification; disconnect-19/255, `0x07FF` sentinel, clock drift, `userID: null` |
 | — A&D UA-651BLE GATT dump | https://github.com/HEADS-project/ThingML-BLE/blob/master/Documentation/AND_Medical_UA651BLE.md | UA-651BLE service/characteristic handles and the §3.7 worked example |
+
+## 7. Driver Implementation Notes (v1, task xlg.9, 2026-10-25)
+
+The shipped driver lives in `app/src/main/java/com/zamotkin/extrahealthgarmin/devices/ble1810/`
+and mirrors the omron/ architecture: pure, fake-able logic behind seams; `android.bluetooth`
+confined to ONE glue file. Real 0x1810 hardware is exercised only in the final verification
+task (epic .10); everything below is verified by unit tests over fakes.
+
+| File | Role |
+|---|---|
+| `Ble1810Protocol.kt` | every constant: UUIDs, CCCD value `0x0002`, the 0x07FF sentinel word, kPa factor, the two session timeouts |
+| `Ble1810MeasurementParser.kt` | pure section-3 parser: flags, SFLOAT specials, units, Date Time, User ID, Measurement Status; never throws |
+| `Ble1810Session.kt` | the `Ble1810Transport` seam + the read-session state machine (burst collection, quirk absorption, arrival stamping) |
+| `Ble1810FingerprintJournal.kt` | per-source dedup journal for timestamp-less records (7.2) |
+| `Ble1810Client.kt` | result type + exception hierarchy + the readout facade folding failures; permission helpers |
+| `Ble1810Scanner.kt` | `Ble1810ScanTransport` seam + the pure discovery scanner (bonded-first, UUID-filtered, once per address) |
+| `Ble1810GattConnection.kt` | THE ONLY file importing `android.bluetooth`: GATT glue, the Android scan transport, and the best-effort bond removal |
+| `Ble1810Source.kt` | `BpSource` adapter + `Ble1810BpSourceType` ("ble-standard-1810") |
+
+### 7.1 Parser decisions
+
+- **Units**: Flags bit 0 = kPa is normalized at parse time - mmHg only ever leaves the driver
+  (kPa x 7.50062, rounded). A wire value of 16.0 kPa becomes 120 mmHg.
+- **SFLOAT specials** (GSS Table 2.1): `0x07FF` (NaN) in Systolic OR Diastolic = the device's
+  own failed-reading marker -> the record is skipped and counted, never stored (4.2). `0x07FF`
+  in MAP or Pulse degrades only that field (null). Any other special value (+Inf/-Inf/NRes/RFU)
+  in a primary field is Malformed; a negative pressure is Malformed.
+- **Timestamp**: present (Flags bit 1) -> the device wall-clock digits, read as UTC (the Omron
+  record-decoder convention - digits stay stable). Unusable content (year 0, February 31,
+  out-of-range fields) degrades to the timestamp-ABSENT path below - the measurement values
+  stay real; a broken clock never costs a record.
+- **User ID**: kept informationally (0xFF = Unknown User); attribution is always the app owner
+  (epic R4) - `BpReading.APP_OWNER_SLOT`.
+- **Layout strictness**: the frame length must equal exactly what the flags announce; reserved
+  flag bits (5-7, "shall be set to 0") make the frame Malformed.
+
+### 7.2 Fingerprint dedup for timestamp-less devices
+
+Devices without a clock get the READ time as record time, so a HISTORY re-read would duplicate
+every row. The journal (`ble1810-<address>-fingerprints.json`, atomic writes, count-wise
+merge-on-save like the Garmin upload journals) stores, per VALUE fingerprint
+(`sys|dia|MAP|pulse|status|userId` - never the read time), how many identical readings were
+already delivered:
+
+- **Occurrence counting is the "relative order"**: walking a burst in arrival order, the n-th
+  record with a given fingerprint is delivered only when n exceeds the journaled count. Two
+  real identical readings in one burst are both delivered; a full re-push of both delivers
+  nothing; a ring-buffer shift (which would break a burst-INDEX fingerprint) changes nothing.
+- **Timestamp-carrying records never touch the journal**: their identity is the stable device
+  time; the downstream pipeline already dedups them (Room's unique
+  `(timestamp, userSlot, sourceId)` index + the Garmin upload journal) - exactly how the Omron
+  HISTORY ring re-read stays idempotent.
+- **The journal grows only on a successful read pass** (anchors-never-advance, epic R5): a
+  failed pass leaves every record retriable.
+- Known residual edge (inherent to clock-less hardware): a "latest-only" device that pushes
+  one new reading byte-identical to several already-journaled ones will have it suppressed.
+  Duplicated storage is the alternative; fingerprint dedup follows the 4.2 rule.
+
+### 7.3 Session decisions
+
+- **Two windows**: the first indication waits up to 30 s (the button-press window - some
+  monitors push only after a transfer button is pressed, 4.2); after anything arrived, the
+  inter-indication idle window is 10 s.
+- **Session end**: the status-19 self-disconnect AND the idle timeout both end the session
+  normally with the collected records. The driver never auto-reconnects (4.2); other
+  disconnect statuses are logged (warn) but also end the session - the burst data already
+  received is real, and the fingerprint journal makes a later re-push safe either way.
+- **Early indications** (before the CCCD write confirms, 4.2) are buffered by the glue from
+  connection start, so nothing is lost.
+- **Duplicate delivery**: a byte-identical re-delivery of the immediately previous indication
+  is dropped and counted (the UA-651BLE quirk, 4.2) - stored once.
+- **Arrival-time attribution**: clock-less records get the arrival second, made unique and
+  monotonic within the pass (a frozen clock yields T, T+1, T+2, ...) - two records of one burst
+  never share a read timestamp, so the storage's unique index keeps every record.
+
+### 7.4 Connection + bonding
+
+- Connect is direct (`autoConnect = false`) to the stored address; bonding is completed
+  proactively when the device is not bonded (createBond + broadcast wait, 30 s) BEFORE the
+  CCCD write, and insufficient-authentication statuses (5/15) on any GATT op trigger one
+  bond-and-retry round. Pairing prompts are system UI - the flow shows an explanatory step
+  (strings `ble1810_pairing_step1..3`).
+- 0x2A49 (feature bitmap) and 0x180A (manufacturer + model, the friendly name) are read
+  best-effort for diagnostics; a monitor without them still transfers readings.
+- **Source removal drops the system bond** (`Ble1810Bonds.removeBond`) - best-effort via
+  reflection (hidden API); failure is logged, and the user can always unpair in system
+  Bluetooth settings. The removal flow (task .3) calls it.
+
+### 7.5 Capabilities + registration (epic R2/R4/R5)
+
+- `userAttribution = NONE` (app owner), `supportedSyncModes = {HISTORY}` - the device decides
+  what a push contains (all-stored / latest-only / delete-after-transfer, 4.2), there is no
+  windowed read (no RACP in practice), so every pass IS the idempotent full read.
+  `requiresPairingKey = false` - connection is system bonding, not an app key.
+- Registration is one line in `HealthSyncWiring.sourceRegistry()`
+  (`Ble1810BpSourceType`) - no core-class changes (SC2 proof held).
+- The scanner surfaces any 0x1810 advertiser; note the Omron M7 also advertises 0x1810 (1.2),
+  so one scan feeds both BLE source types - the add-source flow decides which type to offer
+  for a selected device.
+
+### 7.6 Error surfaces
+
+The pure layers carry raw English reasons (the `OmronBleResult` convention); the user-facing
+texts are the string resources `ble1810_error_{bonding,connect,timeout,disconnected}` +
+`ble1810_pairing_step{1,2,3}` (EN + RU in sync), rendered by the add-source flow (task .3)
+and the read UI (task .6).
 
 *Medical disclaimer: this document supports software integration only; it is not medical advice.*
