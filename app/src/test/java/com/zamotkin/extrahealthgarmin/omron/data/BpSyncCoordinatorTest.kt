@@ -88,6 +88,11 @@ class BpSyncCoordinatorTest {
             }
         }
 
+        // The unified cross-source query (task xlg.6) is not exercised by
+        // the coordinator; OmronBpRepositoryTest pins it.
+        override suspend fun allForSources(sourceIds: List<String>): List<BloodPressureRecordEntity> =
+            emptyList()
+
         override suspend fun unsyncedForUser(userSlot: Int): List<BloodPressureRecordEntity> {
             failure?.let { throw it }
             return rows

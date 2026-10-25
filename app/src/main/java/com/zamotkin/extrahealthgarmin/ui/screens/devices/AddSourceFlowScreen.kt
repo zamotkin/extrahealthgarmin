@@ -50,8 +50,8 @@ import com.zamotkin.extrahealthgarmin.ui.kit.components.StatusRow
  * forwards taps. The two Activity-Result launchers the flow needs (BLE
  * runtime permissions, the Health Connect grant) stay in Compose via
  * rememberLauncherForActivityResult - the single-activity rule of the
- * epic, mirroring MainActivity's and OmronActivity's activity-owned
- * launchers (raw material: ui/omron's PairingFlowScreen and OmronActivity).
+ * epic (the pre-redesign Omron transfer screen's activity-owned launchers
+ * were the raw material this flow absorbed).
  */
 @Composable
 fun AddSourceFlowScreen(

@@ -49,9 +49,9 @@ data class BloodPressureRecordEntity(
 ) {
     companion object {
         /**
-         * Source identity of the pre-sources Omron pipeline (the single
-         * monitor the ui/omron screen reads until task xlg.6 absorbs it):
-         * the default of [sourceId], so legacy call sites that construct or
+         * Source identity of the pre-sources Omron pipeline (its UI went
+         * away with the unified Measurements page, task xlg.6): the
+         * default of [sourceId], so legacy call sites that construct or
          * store rows without a source keep compiling and their rows keep
          * deduping among themselves.
          */

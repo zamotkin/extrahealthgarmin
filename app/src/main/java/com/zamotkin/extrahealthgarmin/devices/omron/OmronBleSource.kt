@@ -103,8 +103,8 @@ class OmronBleSource(
 /**
  * [BleBpSourceType] of the Omron M7 Intelli IT: wires the adapter onto the
  * real omron/ble stack - the same pairing-key file and read entry point the
- * pre-sources ui/omron pipeline uses, so a monitor paired before the
- * redesign keeps working through the seam. The discovered [device] is what
+ * pre-redesign pipeline used, so a monitor paired before the redesign
+ * keeps working through the seam. The discovered [device] is what
  * the add-source flow selected; the current Omron stack finds the monitor
  * itself (service-UUID scan), so the device is not yet used to target a
  * specific one - the standard 0x1810 driver (task xlg.9) will.

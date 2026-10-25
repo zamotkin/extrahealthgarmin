@@ -129,6 +129,11 @@ class SourceReadUseCaseTest {
         private var nextId = 1L
         var failure: Exception? = null
 
+        // The unified cross-source query (task xlg.6) is not exercised by
+        // the read orchestrator; OmronBpRepositoryTest pins it.
+        override suspend fun allForSources(sourceIds: List<String>): List<BloodPressureRecordEntity> =
+            emptyList()
+
         override suspend fun insertIgnoreAll(
             records: List<BloodPressureRecordEntity>
         ): List<Long> {

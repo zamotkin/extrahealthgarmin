@@ -1,5 +1,6 @@
 package com.zamotkin.extrahealthgarmin.ui.navigation
 
+import android.app.Application
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -18,11 +19,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -39,6 +44,8 @@ import com.zamotkin.extrahealthgarmin.ui.screens.devices.SourceListScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeActions
 import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.measurements.MeasurementsScreen
+import com.zamotkin.extrahealthgarmin.ui.screens.measurements.MeasurementsViewModel
+import com.zamotkin.extrahealthgarmin.ui.screens.measurements.MeasurementsViewModelFactory
 import com.zamotkin.extrahealthgarmin.ui.screens.settings.SettingsScreen
 
 private const val ROUTE_HOME = "home"
@@ -70,7 +77,13 @@ private val destinations = listOf(
  * [NavigationBar] (Home / Measurements / Settings, labels always visible)
  * over a three-destination [NavHost] — the single-activity layout every
  * later screen plugs into. The Home tab hosts the migrated weigh-in sync
- * UI; Measurements and Settings render their interim content for now.
+ * UI; Measurements is the blood-pressure page (task xlg.6).
+ *
+ * Epic R8 gating (task xlg.6): the Measurements tab renders only while at
+ * least one blood-pressure source is connected - [MeasurementsViewModel]
+ * owns the state (the shared activity-scoped instance, so the gate and the
+ * page always agree), and every navigation change re-reads the store so a
+ * source added or removed anywhere shows up on the next tap.
  *
  * The privacy-policy dialog is app-level: the Health Connect
  * permission-usage rationale deep link (and only it) opens it here, over
@@ -80,14 +93,24 @@ private val destinations = listOf(
 fun AppRoot(
     viewModel: MainViewModel,
     homeActions: HomeActions,
-    loginDialogRequest: Boolean,
-    onLoginDialogRequestConsumed: () -> Unit,
     privacyDialogVisible: Boolean,
     onPrivacyDialogDismiss: () -> Unit,
 ) {
     val navController = rememberNavController()
+    val application = LocalContext.current.applicationContext as Application
+    val measurementsViewModel: MeasurementsViewModel =
+        viewModel(factory = MeasurementsViewModelFactory(application))
+    val measurementsTabVisible by measurementsViewModel.tabVisible.observeAsState(false)
+
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    // Every navigation change refreshes the connected-source state: the
+    // Measurements tab appears/disappears (R8) the moment a source is added
+    // or removed, without observer plumbing in the store.
+    LaunchedEffect(currentRoute) { measurementsViewModel.refresh() }
+
     Scaffold(
-        bottomBar = { EhgBottomBar(navController) }
+        bottomBar = { EhgBottomBar(navController, showMeasurements = measurementsTabVisible) }
     ) { innerPadding ->
         NavHost(
             navController = navController,
@@ -100,12 +123,10 @@ fun AppRoot(
                 HomeScreen(
                     viewModel = viewModel,
                     actions = homeActions,
-                    loginDialogRequest = loginDialogRequest,
-                    onLoginDialogRequestConsumed = onLoginDialogRequestConsumed,
                 )
             }
             composable(ROUTE_MEASUREMENTS) {
-                MeasurementsScreen()
+                MeasurementsScreen(viewModel = measurementsViewModel)
             }
             composable(ROUTE_SETTINGS) {
                 SettingsScreen(
@@ -146,19 +167,23 @@ fun AppRoot(
 }
 
 @Composable
-private fun EhgBottomBar(navController: NavHostController) {
+private fun EhgBottomBar(navController: NavHostController, showMeasurements: Boolean) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
     NavigationBar {
-        destinations.forEach { destination ->
-            NavigationBarItem(
-                selected = currentRoute == destination.route,
-                onClick = { navController.navigateTab(destination.route) },
-                icon = { Icon(destination.icon, contentDescription = null) },
-                label = { Text(stringResource(destination.labelRes)) }
-            )
-        }
+        // Epic R8: the Measurements destination leaves the bar while no
+        // blood-pressure source is connected - no tab, no BP UI.
+        destinations
+            .filter { it.route != ROUTE_MEASUREMENTS || showMeasurements }
+            .forEach { destination ->
+                NavigationBarItem(
+                    selected = currentRoute == destination.route,
+                    onClick = { navController.navigateTab(destination.route) },
+                    icon = { Icon(destination.icon, contentDescription = null) },
+                    label = { Text(stringResource(destination.labelRes)) }
+                )
+            }
     }
 }
 

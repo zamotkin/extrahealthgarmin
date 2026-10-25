@@ -28,6 +28,27 @@ class OmronBpRepository(
 ) {
 
     /**
+     * One stored reading plus its persistence context (task
+     * tefal2garmin-app-redesign-v3-xlg.6): what
+     * [BloodPressureRecordEntity] holds but [BloodPressureReading] drops —
+     * the [sourceId] the reading came through (the Measurements page's
+     * source attribution) and the [synced] upload flag (its
+     * synced/unsynced state). Returned by the unified cross-source query
+     * [allForSources].
+     */
+    data class StoredBpReading(
+        val timestampEpochSec: Long,
+        val systolic: Int,
+        val diastolic: Int,
+        val pulse: Int,
+        val mov: Boolean,
+        val ihb: Boolean,
+        val userSlot: Int,
+        val sourceId: String,
+        val synced: Boolean
+    )
+
+    /**
      * Outcome of a [storeReadings] batch.
      *
      * @property insertedCount rows actually written (their (timestamp,
@@ -141,6 +162,21 @@ class OmronBpRepository(
         }.getOrElse { e -> failed(e) { emptyList() } }
 
     /**
+     * Every stored reading of the given sources, newest first — the
+     * unified cross-source query of the Measurements page (task
+     * tefal2garmin-app-redesign-v3-xlg.6), each row tagged with its source
+     * id and upload state. An empty [sourceIds] answers empty without
+     * touching the DAO (Room would otherwise build an empty IN list).
+     * Empty on DAO failure.
+     */
+    suspend fun allForSources(sourceIds: List<String>): List<StoredBpReading> {
+        if (sourceIds.isEmpty()) return emptyList()
+        return runCatching {
+            dao.allForSources(sourceIds).map { it.toStoredReading() }
+        }.getOrElse { e -> failed(e) { emptyList() } }
+    }
+
+    /**
      * Deletes every stored reading (the settings "delete all" action).
      * True when the delete ran; false on DAO failure.
      */
@@ -195,4 +231,17 @@ private fun BloodPressureRecordEntity.toDomain() = BloodPressureReading(
     mov = mov,
     ihb = ihb,
     userSlot = userSlot
+)
+
+/** Row -> stored-reading domain: keeps the source tag and the sync flag. */
+private fun BloodPressureRecordEntity.toStoredReading() = OmronBpRepository.StoredBpReading(
+    timestampEpochSec = timestampEpochSec,
+    systolic = systolic,
+    diastolic = diastolic,
+    pulse = pulse,
+    mov = mov,
+    ihb = ihb,
+    userSlot = userSlot,
+    sourceId = sourceId,
+    synced = synced
 )

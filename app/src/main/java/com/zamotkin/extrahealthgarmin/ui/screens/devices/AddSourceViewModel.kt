@@ -57,9 +57,9 @@ data class SourceTypeOption(
 /**
  * UI state machine of the add-source flow (task
  * tefal2garmin-app-redesign-v3-xlg.3): type picker -> BLE scan -> per-type
- * pair step -> save. Same convention as ui.omron.OmronUiState: the state
- * carries NO user-visible text, only markers - every message is resolved
- * from an R.string by the screen.
+ * pair step -> save. Same convention as the app's other UI state machines:
+ * the state carries NO user-visible text, only markers - every message is
+ * resolved from an R.string by the screen.
  */
 sealed interface AddSourceUiState {
 

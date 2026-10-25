@@ -39,6 +39,12 @@ import java.io.IOException
  *   full-ring History plan to recover; cleared once a pass's store step
  *   succeeded. Transient by nature, but persisted so a restart cannot
  *   reopen the data-loss window.
+ * @property autoSync the per-source post-read upload flag (task .6,
+ *   generalizing the old Omron autosync switch): after a successful read
+ *   pass the reader runs one Garmin upload pass for this source's slot.
+ *   NOT a scheduler - there is no background BP work; the flag only rides
+ *   the foreground read (Read now). Defaults to true, and a row saved
+ *   before the field existed loads as true (the pre-sources default).
  * @property createdAt when the source was connected, epoch ms
  */
 data class ConnectedSource(
@@ -51,6 +57,7 @@ data class ConnectedSource(
     val syncMode: SyncMode = SyncMode.HISTORY,
     val lastReadAnchor: Long? = null,
     val fullReadFallbackPending: Boolean = false,
+    val autoSync: Boolean = true,
     val createdAt: Long
 )
 
@@ -188,6 +195,7 @@ class FileConnectedSourceStore(private val file: File) : ConnectedSourceStore {
                 syncMode = parseSyncMode(item.optString(KEY_SYNC_MODE)),
                 lastReadAnchor = item.optNullableLong(KEY_LAST_READ_ANCHOR),
                 fullReadFallbackPending = item.optBoolean(KEY_FULL_READ_FALLBACK, false),
+                autoSync = item.optBoolean(KEY_AUTO_SYNC, true),
                 createdAt = item.getLong(KEY_CREATED_AT)
             )
         }
@@ -207,6 +215,7 @@ class FileConnectedSourceStore(private val file: File) : ConnectedSourceStore {
                     .put(KEY_SYNC_MODE, source.syncMode.name)
                     .put(KEY_LAST_READ_ANCHOR, source.lastReadAnchor ?: JSONObject.NULL)
                     .put(KEY_FULL_READ_FALLBACK, source.fullReadFallbackPending)
+                    .put(KEY_AUTO_SYNC, source.autoSync)
                     .put(KEY_CREATED_AT, source.createdAt)
             })
         )
@@ -274,6 +283,7 @@ class FileConnectedSourceStore(private val file: File) : ConnectedSourceStore {
         const val KEY_SYNC_MODE = "syncMode"
         const val KEY_LAST_READ_ANCHOR = "lastReadAnchor"
         const val KEY_FULL_READ_FALLBACK = "fullReadFallbackPending"
+        const val KEY_AUTO_SYNC = "autoSync"
         const val KEY_CREATED_AT = "createdAt"
     }
 }

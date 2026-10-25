@@ -64,54 +64,33 @@
     <string name="alert_bp_dropped_text">Измерений отброшено (сутки без пульса с часов Garmin): %1$d</string>
     <string name="hydration_note">Вода: новые записи Health Connect добавляются в дневную гидратацию Garmin с момента выдачи доступа (старые нет: Garmin не знает, учтены ли они уже). Удаление или изменение записи исправляет Garmin.</string>
     <string name="hydration_note_tap">Нажмите, чтобы разрешить доступ к гидратации.</string>
-    <!-- Omron blood pressure -->
-    <string name="omron_open">Артериальное давление (Omron)</string>
-    <string name="omron_title_dashboard">Артериальное давление</string>
-    <string name="omron_title_transfer">Перенос с тонометра</string>
-    <string name="omron_title_settings">Настройки</string>
-    <string name="omron_tab_readings">Измерения</string>
-    <string name="omron_tab_transfer">Перенос</string>
-    <string name="omron_tab_settings">Настройки</string>
-    <string name="omron_start">Начать перенос</string>
-    <string name="omron_full_transfer">Перенести всю историю</string>
-    <string name="omron_full_transfer_hint">Читает все сохранённые измерения выбранного пользователя тонометра, а не только новые</string>
-    <string name="omron_pairing_step1">Зажмите кнопку передачи на тонометре на 3-5 секунд, пока на экране не появится -P-</string>
-    <string name="omron_pairing_step2">Держите тонометр рядом с телефоном - по завершении переноса он покажет [OK]</string>
-    <string name="omron_pairing_step3">Тонометр работает с одним приложением одновременно - сначала отвяжите его от Omron Connect</string>
-    <string name="omron_reading">Читаем данные с тонометра...</string>
-    <string name="omron_permissions_grant">Выдать разрешения</string>
-    <string name="omron_permissions_rationale">Для чтения данных с тонометра нужны разрешения Bluetooth</string>
-    <string name="omron_bonding_required">Тонометр не сопряжен с этим телефоном. Выполните сопряжение в настройках Bluetooth Android и попробуйте снова</string>
-    <string name="omron_success">Перенесено новых измерений: %1$d</string>
-    <string name="omron_success_none">На тонометре нет новых измерений</string>
-    <string name="omron_error_auth">Тонометр отклонил ключ сопряжения приложения - он сопряжен с другим телефоном или приложением. Очистите данные приложения и выполните сопряжение заново</string>
-    <string name="omron_error_timeout">Тонометр не ответил вовремя. Убедитесь, что на экране -P-, и попробуйте снова</string>
-    <string name="omron_error_disconnected">Тонометр отключился во время переноса - держите его ближе и попробуйте снова</string>
-    <string name="omron_error_failed">Не удалось выполнить перенос</string>
-    <string name="omron_error_unexpected">Непредвиденная ошибка: %1$s</string>
-    <string name="omron_error_sync_partial">Часть измерений не загрузилась в Garmin - они сохранены и повторят загрузку при следующей синхронизации</string>
-    <string name="omron_error_sync_retryable">Загрузка в Garmin не удалась - измерения сохранены и повторят загрузку при следующей синхронизации</string>
-    <string name="omron_error_garmin_login_required">Войдите в Garmin, чтобы загружать измерения</string>
-    <string name="omron_autosync">Загружать в Garmin автоматически</string>
-    <string name="omron_autosync_hint">Загружаются только измерения выбранного пользователя тонометра</string>
-    <string name="omron_no_readings">Измерений пока нет - перенесите их с тонометра</string>
-    <string name="omron_readings_count">Измерений: %1$d</string>
-    <string name="omron_reading_pulse">%1$d уд/мин</string>
-    <string name="omron_reading_sys_dia">%1$d/%2$d мм рт. ст.</string>
-    <string name="omron_badge_mov">движ.</string>
-    <string name="omron_badge_ihb">аритмия</string>
-    <string name="omron_user1">Пользователь 1</string>
-    <string name="omron_user2">Пользователь 2</string>
-    <string name="omron_settings_user_section">Пользователь тонометра</string>
-    <string name="omron_slot_hint">Измерения каждого пользователя тонометра переносятся и хранятся отдельно</string>
-    <string name="omron_settings_relogin">Повторно войти в Garmin</string>
-    <string name="omron_settings_delete_slot">Удалить измерения профиля</string>
-    <string name="omron_settings_delete_slot_confirm">Это навсегда удалит сохранённые в приложении измерения пользователя тонометра %1$d.</string>
-    <string name="omron_settings_delete_all">Удалить все измерения</string>
-    <string name="omron_settings_delete_all_confirm">Это навсегда удалит все измерения, сохранённые в приложении. Уже загруженные в Garmin измерения там не удаляются.</string>
-    <string name="omron_settings_delete_all_yes">Удалить</string>
-    <string name="omron_settings_delete_cancel">Отмена</string>
-    <string name="omron_open_readings">Показать измерения</string>
+    <!-- Страница «Измерений» (ui/screens/measurements, задача
+         tefal2garmin-app-redesign-v3-xlg.6): единая страница давления,
+         вобравшая прежний дашборд Omron. Заголовки ошибок чтения берутся из
+         формулировок стандартного BLE-драйвера задачи xlg.9
+         (ble1810_error_*); исходная причина слоя идёт строкой подробностей. -->
+    <string name="measurement_read_now">Прочитать сейчас</string>
+    <string name="measurement_read_running">Чтение из источника…</string>
+    <string name="measurement_read_success_new">Прочитано новых измерений: %1$d</string>
+    <string name="measurement_read_success_none">Новых измерений нет</string>
+    <string name="measurement_read_pipeline_summary">Загружено в Garmin: %1$d · Ожидают пульса часов: %2$d · Отброшено: %3$d</string>
+    <string name="measurement_read_store_failed">Не удалось сохранить измерения — они будут прочитаны снова при следующем чтении</string>
+    <string name="measurement_read_failed_unexpected">Непредвиденная ошибка: %1$s</string>
+    <string name="measurement_upload_partial">Часть измерений не загрузилась в Garmin — они сохранены и повторят загрузку при следующем чтении</string>
+    <string name="measurement_upload_retryable">Загрузка в Garmin не удалась — измерения сохранены и повторят загрузку при следующем чтении</string>
+    <string name="measurement_autosync">Загружать в Garmin автоматически</string>
+    <string name="measurement_autosync_hint">После каждого успешного чтения новые измерения загружаются в Garmin</string>
+    <string name="measurement_source_last_reading">Новейшее измерение: %1$s</string>
+    <string name="measurement_source_never_read">Измерений пока нет</string>
+    <string name="measurement_readings_count">Измерений: %1$d</string>
+    <string name="measurement_readings_empty_text">Нажмите «Прочитать сейчас», чтобы собрать измерения из источников.</string>
+    <string name="measurement_show_more">Показать ещё (%1$d)</string>
+    <string name="measurement_reading_sys_dia">%1$d/%2$d мм рт. ст.</string>
+    <string name="measurement_reading_pulse">%1$d уд/мин</string>
+    <string name="measurement_badge_mov">движ.</string>
+    <string name="measurement_badge_ihb">аритмия</string>
+    <string name="measurement_state_synced">Синхронизировано</string>
+    <string name="measurement_state_unsynced">Не синхронизировано</string>
 
     <!-- Каркас приложения (redesign v3, задача xlg.1): нижняя навигация и
          промежуточное содержимое «Измерений» и «Настроек» -->

@@ -12,10 +12,10 @@ import com.zamotkin.extrahealthgarmin.ui.MainUiState
  *
  * The dialog opens when the ViewModel asks ([MainUiState.showLoginDialog],
  * set by a LoginRequired sync/upload outcome, NeedsMfa or a Failed login)
- * or on a local user request ([onUserOpen] — the Connect Garmin button and
- * the EXTRA_SHOW_GARMIN_LOGIN deep link). It closes on the falling edge of
- * showLoginDialog, on the rising edge of garminConnected (a successful
- * login) and on a user cancel ([onUserDismiss]).
+ * or on a local user request ([onUserOpen] — the Connect Garmin button).
+ * It closes on the falling edge of showLoginDialog, on the rising edge of
+ * garminConnected (a successful login) and on a user cancel
+ * ([onUserDismiss]).
  *
  * Edge detection is what keeps repeated equal emissions from re-triggering
  * the one-shot dialog lifecycle (flicker/reopen); [onState] is idempotent
@@ -34,7 +34,7 @@ class LoginDialogVisibility {
     private var lastShowLoginDialog = false
     private var lastGarminConnected = false
 
-    /** Local open request (Connect Garmin button, login deep link). */
+    /** Local open request (the Connect Garmin button). */
     fun onUserOpen() {
         visible = true
     }

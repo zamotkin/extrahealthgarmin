@@ -163,6 +163,30 @@ class ConnectedSourceStoreTest {
         assertEquals(100L, loaded.lastReadAnchor)
     }
 
+    // ------------------------------------------------------------------ //
+    //  Autosync flag (task tefal2garmin-app-redesign-v3-xlg.6)           //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `roundtrip persists the autosync flag`() {
+        val optedOut = omronSource().copy(autoSync = false)
+
+        newStore().save(listOf(optedOut))
+
+        assertEquals(listOf(optedOut), newStore().load())
+    }
+
+    @Test
+    fun `a row saved before the autosync flag existed loads it as true`() {
+        val file = File(tmp.root, "bp-sources.json")
+        file.writeText(
+            """{"sources":[{"id":"u1","sourceTypeId":"omron-ble","name":"M7",""" +
+                """"syncMode":"CURRENT","createdAt":123}]}"""
+        )
+
+        assertTrue("the pre-flag default was autosync on", newStore().load().single().autoSync)
+    }
+
     @Test
     fun `update changes one row and leaves the rest untouched`() {
         val store = newStore()

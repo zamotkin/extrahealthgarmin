@@ -97,6 +97,23 @@ interface BloodPressureDao {
     )
     suspend fun unsyncedForSource(sourceId: String, userSlot: Int?): List<BloodPressureRecordEntity>
 
+    /**
+     * Every stored record of the given sources, newest first (no row
+     * limit) — the unified cross-source query of the Measurements page
+     * (task tefal2garmin-app-redesign-v3-xlg.6): rows of every connected
+     * source in one pass, each still carrying its [sourceId] (the source
+     * attribution) and [synced] flag. The epic-R4 per-source slot filter
+     * is applied by the caller, which knows each source's picked user.
+     * Empty [sourceIds] never reaches Room (the repository short-circuits
+     * it), so the SQL never sees an empty IN list.
+     */
+    @Query(
+        "SELECT * FROM blood_pressure_records " +
+            "WHERE sourceId IN (:sourceIds) " +
+            "ORDER BY timestampEpochSec DESC"
+    )
+    suspend fun allForSources(sourceIds: List<String>): List<BloodPressureRecordEntity>
+
     /** Deletes every stored record (the settings "delete all readings" action). */
     @Query("DELETE FROM blood_pressure_records")
     suspend fun deleteAll()

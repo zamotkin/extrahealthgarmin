@@ -50,15 +50,13 @@ import java.util.Locale
 
 /**
  * Activity-owned actions the Home screen triggers (manual wiring, same
- * style as the Omron screens' requestBlePermissions): the Health Connect
+ * style as the device screens' requestBlePermissions): the Health Connect
  * permission screen and Play Store fallback (Activity Result API +
- * intents live in MainActivity), the Omron blood-pressure entry, and the
- * debug-only Garmin auth spike.
+ * intents live in MainActivity) and the debug-only Garmin auth spike.
  */
 data class HomeActions(
     val requestHcPermissions: () -> Unit,
     val openHealthConnectInPlayStore: () -> Unit,
-    val openOmron: () -> Unit,
     val triggerGarminAuthSpike: () -> Unit,
 )
 
@@ -66,10 +64,10 @@ data class HomeActions(
  * Home tab (redesign v3, task xlg.1): faithful Compose port of the former
  * View-based MainActivity screen — Health Connect status (tap-through to
  * the permission screen / Play Store), upload progress + status, last-sync
- * + pending line, Sync now, Backfill window picker, the Omron blood
- * pressure entry, the Garmin connect entry point and the optional
- * blood-pressure/hydration permission notes. All logic stays in
- * [MainViewModel]; this file only renders [MainUiState] and forwards taps.
+ * + pending line, Sync now, Backfill window picker, the Garmin connect
+ * entry point and the optional blood-pressure/hydration permission notes.
+ * All logic stays in [MainViewModel]; this file only renders [MainUiState]
+ * and forwards taps.
  *
  * [hcSyncError] is deliberately not rendered (as before); [uploadStatus]
  * keeps the existing overloaded Garmin-upload/HC-sync mapping.
@@ -78,23 +76,12 @@ data class HomeActions(
 fun HomeScreen(
     viewModel: MainViewModel,
     actions: HomeActions,
-    loginDialogRequest: Boolean,
-    onLoginDialogRequestConsumed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.observeAsState()
     val s = state ?: MainUiState()
     val loginDialog = remember { LoginDialogVisibility() }
 
-    // Deep-link open request (EXTRA_SHOW_GARMIN_LOGIN): one-shot — Home
-    // consumes it when it opens the dialog, so returning to the tab later
-    // cannot re-open it (see MainActivity.handleIntent).
-    LaunchedEffect(loginDialogRequest) {
-        if (loginDialogRequest) {
-            loginDialog.onUserOpen()
-            onLoginDialogRequestConsumed()
-        }
-    }
     // Every distinct LiveData emission advances the login-dialog state
     // machine (edge detection; equal states are no-ops).
     LaunchedEffect(s) { loginDialog.onState(s) }
@@ -123,12 +110,6 @@ fun HomeScreen(
             text = stringResource(R.string.sync_now),
             onClick = viewModel::syncNow,
             enabled = canSync,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        EhgButton(
-            text = stringResource(R.string.omron_open),
-            onClick = actions.openOmron,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(modifier = Modifier.height(8.dp))

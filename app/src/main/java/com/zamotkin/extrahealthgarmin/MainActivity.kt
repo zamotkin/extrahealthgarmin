@@ -22,7 +22,6 @@ import com.zamotkin.extrahealthgarmin.ui.MainViewModel
 import com.zamotkin.extrahealthgarmin.ui.MainViewModelFactory
 import com.zamotkin.extrahealthgarmin.ui.kit.theme.EhgTheme
 import com.zamotkin.extrahealthgarmin.ui.navigation.AppRoot
-import com.zamotkin.extrahealthgarmin.ui.omron.OmronActivity
 import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeActions
 
 /**
@@ -30,9 +29,9 @@ import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeActions
  * [AppRoot] — the bottom-navigation scaffold (Home / Measurements /
  * Settings) — under the shared [EhgTheme], edge to edge. Owns everything
  * Compose must not: the Activity Result API surfaces (Health Connect
- * permissions, POST_NOTIFICATIONS), the Play Store fallback, the Omron
- * entry intent and the intent deep links; all Home logic stays in
- * [MainViewModel] (see [SyncWorker] for the foreground/background split).
+ * permissions, POST_NOTIFICATIONS), the Play Store fallback and the intent
+ * deep links; all Home logic stays in [MainViewModel] (see [SyncWorker]
+ * for the foreground/background split).
  *
  * [launchMode][android.R.attr.launchMode] is singleTop, so the Health
  * Connect permission-usage rationale alias and the sync-alert
@@ -51,13 +50,6 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_HEALTH_PERMISSIONS_RATIONALE = "health_permissions_rationale"
 
         /**
-         * Launch extra asking the app to open the Garmin login dialog right
-         * away — set by the Omron screen's "Sign in to Garmin again" entry
-         * (the login dialog lives on the Home tab).
-         */
-        const val EXTRA_SHOW_GARMIN_LOGIN = "show_garmin_login"
-
-        /**
          * Health Connect provider package — the Play Store link target and
          * the <queries> entry in AndroidManifest.xml.
          */
@@ -67,11 +59,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Deep-link UI state read by the Compose tree. The privacy dialog is a
-    // plain Boolean; the login dialog request is a one-shot signal — set
-    // per delivered EXTRA_SHOW_GARMIN_LOGIN intent, consumed by Home when
-    // it opens the dialog (so a later tab switch back cannot re-open it).
+    // plain Boolean; the Garmin login dialog needs no launch signal - it
+    // opens in-app from Home's Connect Garmin entry (the cross-activity
+    // relogin round-trip went away with the Omron activity, task xlg.6).
     private var privacyDialogVisible by mutableStateOf(false)
-    private var loginDialogRequested by mutableStateOf(false)
 
     // Health Connect permission screen (Activity Result API). connect-client
     // 1.1.0 has no Intent-based request builder — this contract is the
@@ -104,11 +95,8 @@ class MainActivity : AppCompatActivity() {
                     homeActions = HomeActions(
                         requestHcPermissions = ::requestHcPermissions,
                         openHealthConnectInPlayStore = ::openHealthConnectInPlayStore,
-                        openOmron = { startActivity(Intent(this, OmronActivity::class.java)) },
                         triggerGarminAuthSpike = { GarminAuthSpike.trigger(this) },
                     ),
-                    loginDialogRequest = loginDialogRequested,
-                    onLoginDialogRequestConsumed = { loginDialogRequested = false },
                     privacyDialogVisible = privacyDialogVisible,
                     onPrivacyDialogDismiss = { privacyDialogVisible = false },
                 )
@@ -146,15 +134,11 @@ class MainActivity : AppCompatActivity() {
      * Dispatches the deep-link extras once per delivered intent — from
      * [onCreate] for a fresh instance and from [onNewIntent] when the
      * singleTop instance is reused: the rationale alias opens the
-     * privacy-policy dialog, the Omron re-login entry asks Home for the
-     * Garmin login dialog.
+     * privacy-policy dialog.
      */
     private fun handleIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_HEALTH_PERMISSIONS_RATIONALE, false) == true) {
             privacyDialogVisible = true
-        }
-        if (intent?.getBooleanExtra(EXTRA_SHOW_GARMIN_LOGIN, false) == true) {
-            loginDialogRequested = true
         }
     }
 

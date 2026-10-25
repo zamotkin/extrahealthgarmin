@@ -35,6 +35,7 @@ class OmronBpRepositoryTest {
         val rows = mutableListOf<BloodPressureRecordEntity>()
         private var nextId = 1L
         var failure: Exception? = null
+        var allForSourcesCalls = 0
 
         override suspend fun deleteAll() {
             failure?.let { throw it }
@@ -127,6 +128,16 @@ class OmronBpRepositoryTest {
                         (userSlot == null || it.userSlot == userSlot)
                 }
                 .sortedBy { it.timestampEpochSec }
+        }
+
+        override suspend fun allForSources(
+            sourceIds: List<String>,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            allForSourcesCalls++
+            return rows
+                .filter { it.sourceId in sourceIds }
+                .sortedByDescending { it.timestampEpochSec }
         }
     }
 
@@ -430,6 +441,63 @@ class OmronBpRepositoryTest {
     }
 
     // ------------------------------------------------------------------ //
+    //  Cross-source query (task tefal2garmin-app-redesign-v3-xlg.6)      //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * The Measurements page's unified query: the listed sources' rows in
+     * one newest-first list, each keeping its source tag (the page's
+     * source attribution) and its Garmin sync state.
+     */
+    @Test
+    fun `allForSources returns the listed sources rows newest first keeping source and sync state`() =
+        runTest {
+            repository.storeReadings(
+                listOf(reading(1_000), reading(3_000)),
+                sourceId = "source-a"
+            )
+            repository.storeReadings(listOf(reading(2_000)), sourceId = "source-b")
+            repository.storeReadings(listOf(reading(4_000)), sourceId = "source-c")
+            repository.markSynced(3_000, userSlot = 1)
+
+            val rows = repository.allForSources(listOf("source-a", "source-b"))
+
+            assertEquals(listOf(3_000L, 2_000L, 1_000L), rows.map { it.timestampEpochSec })
+            assertEquals(listOf("source-a", "source-b", "source-a"), rows.map { it.sourceId })
+            assertTrue("the marked row keeps its synced state", rows[0].synced)
+            assertFalse("an unmarked row stays unsynced", rows[1].synced)
+        }
+
+    /**
+     * No connected sources: the repository answers empty BEFORE the DAO -
+     * Room never sees an empty IN list.
+     */
+    @Test
+    fun `allForSources with no sources answers empty without touching the dao`() = runTest {
+        dao.failure = IllegalStateException("must not be reached")
+
+        assertEquals(
+            emptyList<OmronBpRepository.StoredBpReading>(),
+            repository.allForSources(emptyList())
+        )
+        assertEquals(0, dao.allForSourcesCalls)
+        assertEquals(0, errors.size)
+    }
+
+    /** Same never-throws contract as every other query. */
+    @Test
+    fun `allForSources dao failure answers empty and reports onError`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+        dao.failure = IllegalStateException("disk I/O error")
+
+        assertEquals(
+            emptyList<OmronBpRepository.StoredBpReading>(),
+            repository.allForSources(listOf("source-a"))
+        )
+        assertEquals(1, errors.size)
+    }
+
+    // ------------------------------------------------------------------ //
     //  Never throws                                                       //
     // ------------------------------------------------------------------ //
 
@@ -465,6 +533,7 @@ class OmronBpRepositoryTest {
         val all = repository.allForUser(userSlot = 1)
         val allForSource = repository.allForSource(sourceId = "source-a")
         val unsyncedForSource = repository.unsyncedForSource(sourceId = "source-a")
+        val allForSources = repository.allForSources(listOf("source-a"))
 
         assertEquals(
             OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0, success = false),
@@ -476,7 +545,8 @@ class OmronBpRepositoryTest {
         assertEquals(emptyList<BloodPressureReading>(), all)
         assertEquals(emptyList<BloodPressureReading>(), allForSource)
         assertEquals(emptyList<BloodPressureReading>(), unsyncedForSource)
-        assertEquals(7, errors.size)
+        assertEquals(emptyList<OmronBpRepository.StoredBpReading>(), allForSources)
+        assertEquals(8, errors.size)
         assertTrue(errors.all { it is IllegalStateException })
     }
 
