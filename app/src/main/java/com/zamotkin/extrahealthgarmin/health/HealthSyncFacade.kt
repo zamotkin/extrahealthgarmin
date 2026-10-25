@@ -8,6 +8,11 @@ import com.zamotkin.extrahealthgarmin.data.GarminBloodPressureRepository
 import com.zamotkin.extrahealthgarmin.data.GarminHydrationRepository
 import com.zamotkin.extrahealthgarmin.data.GarminRepository
 import com.zamotkin.extrahealthgarmin.data.GarminUploadOrchestrator
+import com.zamotkin.extrahealthgarmin.devices.SourceRegistry
+import com.zamotkin.extrahealthgarmin.devices.healthconnect.HealthConnectBpSourceType
+import com.zamotkin.extrahealthgarmin.devices.omron.OmronBleSourceType
+import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSourceStore
+import com.zamotkin.extrahealthgarmin.devices.store.FileConnectedSourceStore
 import java.io.File
 import java.time.Duration
 import java.time.Instant
@@ -157,10 +162,13 @@ class RealHealthSyncFacade(
 /**
  * One wiring point for everything that needs the real facade
  * (MainViewModelFactory, SyncWorker) so the sync-state file name can never
- * drift between them. The uploader is provided lazily because this is also
- * the MainViewModel constructor default — constructing [GarminRepository]
- * eagerly would pull the AndroidKeyStore-backed token store into JVM unit
- * tests that never sync.
+ * drift between them — and, since task
+ * tefal2garmin-app-redesign-v3-xlg.2, for the blood-pressure source seam
+ * ([sourceRegistry], [connectedSourceStore]) so the source type list and
+ * the bp-sources file name live in exactly one place too. The uploader is
+ * provided lazily because this is also the MainViewModel constructor
+ * default — constructing [GarminRepository] eagerly would pull the
+ * AndroidKeyStore-backed token store into JVM unit tests that never sync.
  */
 object HealthSyncWiring {
 
@@ -175,6 +183,25 @@ object HealthSyncWiring {
 
     /** Hydration sync state (own changes token + what was sent, for take-backs). */
     const val HYDRATION_STATE_FILE_NAME = "hydration-sync.json"
+
+    /** Connected blood-pressure sources (devices/, task ...xlg.2). */
+    const val BP_SOURCES_FILE_NAME = "bp-sources.json"
+
+    /**
+     * The app's blood-pressure source registry (task
+     * tefal2garmin-app-redesign-v3-xlg.2): one entry per source type is the
+     * whole registration — the standard BLE 0x1810 driver (task xlg.9) adds
+     * itself here and nowhere else. The types are plain-JVM objects (the
+     * [Context] is a create-time parameter), so the registry itself carries
+     * no Android state.
+     */
+    fun sourceRegistry(): SourceRegistry = SourceRegistry(
+        listOf(OmronBleSourceType, HealthConnectBpSourceType)
+    )
+
+    /** Persistence for connected blood-pressure sources (atomic JSON). */
+    fun connectedSourceStore(context: Context): ConnectedSourceStore =
+        FileConnectedSourceStore(File(context.filesDir, BP_SOURCES_FILE_NAME))
 
     fun facade(context: Context, uploader: GarminUploadOrchestrator? = null): HealthSyncFacade =
         RealHealthSyncFacade(

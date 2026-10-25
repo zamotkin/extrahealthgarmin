@@ -15,10 +15,12 @@ import kotlinx.coroutines.CancellationException
  * failures are reported through the constructor-injected [onError] hook the
  * platform wiring can point at its logger of choice.
  *
- * Dedup contract: a reading is identified by (timestampEpochSec, userSlot) —
- * the DAO's unique index. Re-reads of the same EEPROM block insert nothing
- * and are counted as duplicates; the device serving the same measurement for
- * two different user slots is two distinct records.
+ * Dedup contract: a reading is identified by (timestampEpochSec, userSlot,
+ * sourceId) — the DAO's unique index. Re-reads of the same EEPROM block
+ * insert nothing and are counted as duplicates; the same measurement read
+ * through two different sources, or served for two different user slots, is
+ * two distinct records. The Garmin-side journal still dedups per
+ * (timestamp, userSlot) — see [BloodPressureDao.markSynced].
  */
 class OmronBpRepository(
     private val dao: BloodPressureDao,
@@ -35,14 +37,18 @@ class OmronBpRepository(
     data class StoreResult(val insertedCount: Int, val duplicatesCount: Int)
 
     /**
-     * Persists [readings] via insert-ignore: every (timestampEpochSec,
-     * userSlot) already present is counted as a duplicate and left untouched,
-     * everything else is stored as a new un-synced row. On DAO failure
-     * reports [StoreResult] with zero counts — nothing was written.
+     * Persists [readings] of [sourceId] via insert-ignore: every
+     * (timestampEpochSec, userSlot, sourceId) already present is counted as a
+     * duplicate and left untouched, everything else is stored as a new
+     * un-synced row. On DAO failure reports [StoreResult] with zero counts —
+     * nothing was written.
      */
-    suspend fun storeReadings(readings: List<BloodPressureReading>): StoreResult =
+    suspend fun storeReadings(
+        readings: List<BloodPressureReading>,
+        sourceId: String = BloodPressureRecordEntity.LEGACY_SOURCE_ID
+    ): StoreResult =
         runCatching {
-            val rowIds = dao.insertIgnoreAll(readings.map { it.toEntity() })
+            val rowIds = dao.insertIgnoreAll(readings.map { it.toEntity(sourceId) })
             StoreResult(
                 insertedCount = rowIds.count { it != IGNORED_ROW_ID },
                 duplicatesCount = rowIds.count { it == IGNORED_ROW_ID }
@@ -60,10 +66,12 @@ class OmronBpRepository(
         }.getOrElse { e -> failed(e) { emptyList() } }
 
     /**
-     * Marks the record with the given (timestampEpochSec, userSlot) as
-     * synced. True when the update ran; false on DAO failure (whether a row
-     * matched is not observable through the DAO and does not change this —
-     * re-marking a synced record is a no-op either way).
+     * Marks the records with the given (timestampEpochSec, userSlot) as
+     * synced — every source's row with that key, mirroring the Garmin
+     * journal's composite key (see [BloodPressureDao.markSynced]). True when
+     * the update ran; false on DAO failure (whether a row matched is not
+     * observable through the DAO and does not change this — re-marking a
+     * synced record is a no-op either way).
      */
     suspend fun markSynced(timestampEpochSec: Long, userSlot: Int): Boolean =
         runCatching {
@@ -124,14 +132,15 @@ class OmronBpRepository(
 }
 
 /** Domain -> row: persistence state starts at defaults on every insert. */
-private fun BloodPressureReading.toEntity() = BloodPressureRecordEntity(
+private fun BloodPressureReading.toEntity(sourceId: String) = BloodPressureRecordEntity(
     timestampEpochSec = timestampEpochSec,
     systolic = systolic,
     diastolic = diastolic,
     pulse = pulse,
     mov = mov,
     ihb = ihb,
-    userSlot = userSlot
+    userSlot = userSlot,
+    sourceId = sourceId
 )
 
 /** Row -> domain: drops the row id and the sync flag. */

@@ -352,7 +352,12 @@ class OmronViewModelFactory(
                     app,
                     BloodPressureDatabase::class.java,
                     BloodPressureDatabase.DATABASE_NAME
-                ).build().also { database = it }
+                )
+                    // Schema v2 (task tefal2garmin-app-redesign-v3-xlg.2) has
+                    // no migration path by product-owner decision: BP data is
+                    // re-read from sources, legacy rows are not preserved.
+                    .fallbackToDestructiveMigration(dropAllTables = false)
+                    .build().also { database = it }
             }
 
         fun createInstance(

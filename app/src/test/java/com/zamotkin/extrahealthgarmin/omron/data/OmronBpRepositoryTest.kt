@@ -53,7 +53,8 @@ class OmronBpRepositoryTest {
             return records.map { record ->
                 val duplicate = rows.any {
                     it.timestampEpochSec == record.timestampEpochSec &&
-                        it.userSlot == record.userSlot
+                        it.userSlot == record.userSlot &&
+                        it.sourceId == record.sourceId
                 }
                 if (duplicate) {
                     -1L
@@ -79,11 +80,13 @@ class OmronBpRepositoryTest {
 
         override suspend fun markSynced(timestampEpochSec: Long, userSlot: Int) {
             failure?.let { throw it }
-            val index = rows.indexOfFirst {
-                it.timestampEpochSec == timestampEpochSec && it.userSlot == userSlot
-            }
-            if (index >= 0) {
-                rows[index] = rows[index].copy(synced = true)
+            // Mirrors the DAO SQL: every source's row with that key flips,
+            // because the Garmin journal dedups per (timestamp, userSlot).
+            rows.indices.forEach { index ->
+                val row = rows[index]
+                if (row.timestampEpochSec == timestampEpochSec && row.userSlot == userSlot) {
+                    rows[index] = row.copy(synced = true)
+                }
             }
         }
 
@@ -173,6 +176,52 @@ class OmronBpRepositoryTest {
 
         assertEquals(OmronBpRepository.StoreResult(insertedCount = 2, duplicatesCount = 0), result)
         assertEquals(2, dao.rows.size)
+    }
+
+    // ------------------------------------------------------------------ //
+    //  sourceId (task tefal2garmin-app-redesign-v3-xlg.2)                 //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `storeReadings tags rows with the given source id`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "uuid-of-a-real-source")
+
+        assertEquals("uuid-of-a-real-source", dao.rows.single().sourceId)
+    }
+
+    @Test
+    fun `storeReadings without a source id defaults to the legacy one`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)))
+
+        assertEquals(BloodPressureRecordEntity.LEGACY_SOURCE_ID, dao.rows.single().sourceId)
+    }
+
+    @Test
+    fun `same timestamp and slot for different sources are distinct rows`() = runTest {
+        val first = repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+        val second = repository.storeReadings(listOf(reading(1_000)), sourceId = "source-b")
+        val again = repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0), first)
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0), second)
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 1), again)
+        assertEquals(
+            listOf("source-a", "source-b"),
+            dao.rows.map { it.sourceId }
+        )
+    }
+
+    @Test
+    fun `markSynced marks every source row with that timestamp and slot`() = runTest {
+        // Two sources hold the same measurement: once Garmin holds it (the
+        // journal is keyed timestamp+slot), no copy can upload again, so the
+        // mark must cover both rows.
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "source-b")
+
+        assertTrue(repository.markSynced(1_000, userSlot = 1))
+
+        assertTrue(dao.rows.all { it.synced })
     }
 
     // ------------------------------------------------------------------ //

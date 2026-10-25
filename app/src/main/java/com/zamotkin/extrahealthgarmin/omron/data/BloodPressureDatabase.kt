@@ -4,16 +4,23 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 
 /**
- * Room database for Omron blood-pressure records (task tefal2garmin-4uy,
- * epic tefal2garmin-939). Version 1, schema not exported — the schema lives
- * in code review, not in migration JSONs, for as long as there is exactly
- * one version. All Room annotations stay on the entity/DAO/database; the
- * repository depends only on the [BloodPressureDao] interface, so nothing
- * downstream needs Android to compile or test.
+ * Room database for blood-pressure records (task tefal2garmin-4uy, epic
+ * tefal2garmin-939). Version 2 (task tefal2garmin-app-redesign-v3-xlg.2)
+ * adds [BloodPressureRecordEntity.sourceId] and widens the unique index to
+ * (timestampEpochSec, userSlot, sourceId). Schema not exported — the schema
+ * lives in code review, not in migration JSONs.
+ *
+ * Version 2 has NO migration path by product-owner decision (2026-10-25,
+ * epic tefal2garmin-app-redesign-v3 R11): blood-pressure data is re-read
+ * fresh from the sources, so legacy rows are not preserved — the database
+ * builder falls back to a destructive migration instead. All Room
+ * annotations stay on the entity/DAO/database; the repository depends only
+ * on the [BloodPressureDao] interface, so nothing downstream needs Android
+ * to compile or test.
  */
 @Database(
     entities = [BloodPressureRecordEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class BloodPressureDatabase : RoomDatabase() {

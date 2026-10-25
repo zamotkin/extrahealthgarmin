@@ -15,9 +15,10 @@ import androidx.room.Query
 interface BloodPressureDao {
 
     /**
-     * Inserts every record, ignoring rows whose (timestampEpochSec, userSlot)
-     * already exists (unique index on [BloodPressureRecordEntity]). Returns
-     * one result per input row, in order: the new row id, or -1L for ignored.
+     * Inserts every record, ignoring rows whose (timestampEpochSec, userSlot,
+     * sourceId) already exists (unique index on [BloodPressureRecordEntity]).
+     * Returns one result per input row, in order: the new row id, or -1L for
+     * ignored.
      */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnoreAll(records: List<BloodPressureRecordEntity>): List<Long>
@@ -38,7 +39,13 @@ interface BloodPressureDao {
     )
     suspend fun unsyncedAll(): List<BloodPressureRecordEntity>
 
-    /** Marks the record with the given (timestampEpochSec, userSlot) as synced. */
+    /**
+     * Marks the records with the given (timestampEpochSec, userSlot) as
+     * synced — every source's row with that key, mirroring the composite key
+     * of [com.zamotkin.extrahealthgarmin.garmin.BpUploadJournal]: once Garmin
+     * holds one reading of that (timestamp, userSlot), no source's copy of
+     * it can upload again, so all of them are done.
+     */
     @Query(
         "UPDATE blood_pressure_records SET synced = 1 " +
             "WHERE timestampEpochSec = :timestampEpochSec AND userSlot = :userSlot"

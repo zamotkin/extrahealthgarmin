@@ -121,4 +121,8 @@
     <string name="measurements_empty_title">Измерений пока нет</string>
     <string name="measurements_empty_text">Подключите источник артериального давления в настройках, чтобы увидеть измерения здесь.</string>
     <string name="settings_interim_text">Здесь появятся источники артериального давления и настройки Garmin и Health Connect. Пока всё находится на вкладке «Главная».</string>
+    <!-- Blood-pressure source types (devices/, task tefal2garmin-app-redesign-v3-xlg.2).
+         Brand names — identical in every locale, like app_name. -->
+    <string name="bp_source_type_omron_ble">Omron M7 Intelli IT</string>
+    <string name="bp_source_type_health_connect">Health Connect</string>
 </resources>

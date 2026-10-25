@@ -122,4 +122,8 @@
     <string name="measurements_empty_title">No measurements yet</string>
     <string name="measurements_empty_text">Connect a blood pressure source in Settings to see readings here.</string>
     <string name="settings_interim_text">Blood pressure sources, Garmin and Health Connect settings will live here. For now everything is on the Home tab.</string>
+    <!-- Blood-pressure source types (devices/, task tefal2garmin-app-redesign-v3-xlg.2).
+         Brand names — identical in every locale, like app_name. -->
+    <string name="bp_source_type_omron_ble">Omron M7 Intelli IT</string>
+    <string name="bp_source_type_health_connect">Health Connect</string>
 </resources>

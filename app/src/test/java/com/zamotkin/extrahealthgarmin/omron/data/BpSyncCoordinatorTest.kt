@@ -75,7 +75,8 @@ class BpSyncCoordinatorTest {
             return records.map { record ->
                 val duplicate = rows.any {
                     it.timestampEpochSec == record.timestampEpochSec &&
-                        it.userSlot == record.userSlot
+                        it.userSlot == record.userSlot &&
+                        it.sourceId == record.sourceId
                 }
                 if (duplicate) {
                     -1L
@@ -102,11 +103,12 @@ class BpSyncCoordinatorTest {
         override suspend fun markSynced(timestampEpochSec: Long, userSlot: Int) {
             markSyncedFailure?.let { throw it }
             failure?.let { throw it }
-            val index = rows.indexOfFirst {
-                it.timestampEpochSec == timestampEpochSec && it.userSlot == userSlot
-            }
-            if (index >= 0) {
-                rows[index] = rows[index].copy(synced = true)
+            // Mirrors the DAO SQL: every source's row with that key flips.
+            rows.indices.forEach { index ->
+                val row = rows[index]
+                if (row.timestampEpochSec == timestampEpochSec && row.userSlot == userSlot) {
+                    rows[index] = row.copy(synced = true)
+                }
             }
         }
 
