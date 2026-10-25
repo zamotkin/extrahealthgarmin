@@ -71,7 +71,7 @@ class OmronSessionTest {
     /** Settings read response: 16-byte unread section (spec §5): user1 slot=1, unread=1. */
     private fun settingsResponse(): SessionFrameCodec.ParsedFrame {
         val data = byteArrayOf(
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,   // counters
+            0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,   // counters (first bytes, spec §5.1)
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   // rest of the section
         )
         return dataResponse(OmronProtocol.RESP_READ, OmronProtocol.SETTINGS_READ_ADDRESS, data)
@@ -133,8 +133,8 @@ class OmronSessionTest {
         assertEquals(0x80.toByte(), resetPayload[5])
         assertEquals(0x00.toByte(), resetPayload[6])
         assertEquals(0x80.toByte(), resetPayload[7])
-        // last-written slots preserved verbatim
-        assertEquals(0x01.toByte(), resetPayload[1])
+        // last-written slots preserved verbatim (first byte of each pair, spec §5.1)
+        assertEquals(0x01.toByte(), resetPayload[0])
         assertArrayEquals(SessionFrameCodec.SESSION_END_FRAME, transport.commandWrites[4])
     }
 

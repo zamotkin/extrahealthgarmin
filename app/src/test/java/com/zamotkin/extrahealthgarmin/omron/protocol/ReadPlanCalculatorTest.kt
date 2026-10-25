@@ -14,18 +14,44 @@ class ReadPlanCalculatorTest {
     private val calc = ReadPlanCalculator()
 
     /**
-     * Builds the 8-byte unread-info section: per user i, lastWrittenSlot in the HIGH byte
-     * of field [2i:2i+2], unread count in the HIGH byte of field [2i+4:2i+6]
-     * (little-endian device, spec §5.1).
+     * Builds the 8-byte unread-info section: per user i, lastWrittenSlot in the FIRST byte
+     * of field [2i:2i+2], unread count in the FIRST byte of field [2i+4:2i+6]
+     * (omblepy bit numbering, spec §5.1 — settled by the 2026-10-25 capture).
      */
     private fun unreadInfo(user1Slot: Int, user1Unread: Int, user2Slot: Int, user2Unread: Int): ByteArray {
         val b = ByteArray(8)
-        b[1] = user1Slot.toByte()
-        b[5] = user1Unread.toByte()
-        b[3] = user2Slot.toByte()    // field [2:4] high byte = index 3
-        b[7] = user2Unread.toByte()  // field [6:8] high byte = index 7
+        b[0] = user1Slot.toByte()
+        b[4] = user1Unread.toByte()
+        b[2] = user2Slot.toByte()    // field [2:4] first byte = index 2
+        b[6] = user2Unread.toByte()  // field [6:8] first byte = index 6
         return b
     }
+
+    /**
+     * Regression on REAL wire bytes (2026-10-25 capture, HEM-7361T-ALRU): after one
+     * new USER2 measurement the unread-info section read back 00400040 00800100 —
+     * USER2 unread = 01 in the FIRST byte. The plan must read exactly one record.
+     * The 0x8000-reset state (00400040 00800080) must plan NOTHING — reading the
+     * SECOND byte instead used to produce the bogus unread=128 mega-read.
+     */
+    @Test
+    fun `real_capture_counter_bytes_plan_exactly_one_read_and_nothing_after_reset`() {
+        val beforeReset = "0040004000800100".hexToBytes()
+        val plan = calc.planForUser(beforeReset, userIdx = 1)
+        // lastWritten=0 < unread=1 -> wrap branch: empty head + one tail read at slot 99
+        assertEquals(2, plan.size)
+        assertEquals(0, plan[0].size)
+        assertEquals(0x06D8 + 99 * 0x10, plan[1].address)   // slot 99 held the fresh record
+        assertEquals(0x10, plan[1].size)
+
+        val afterReset = "0040004000800080".hexToBytes()
+        assertEquals(0, calc.planForUser(afterReset, userIdx = 1).size)
+    }
+
+    private fun String.hexToBytes(): ByteArray =
+        ByteArray(length / 2) { i ->
+            ((Character.digit(this[i * 2], 16) shl 4) + Character.digit(this[i * 2 + 1], 16)).toByte()
+        }
 
     @Test
     fun `non_wrap_plan_is_single_read`() {

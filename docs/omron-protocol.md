@@ -234,11 +234,11 @@ Settings block size = `0x54 - 0x10 = 0x44` (68 bytes): cached in RAM by the clie
 
 `[CAPTURE]`: confirmed on the wire — the unread-section read targets `0x0010` with a 16-byte
 read (frame `08 01 00 00 10 10 00 09`); record reads covered the full USER1 ring
-`0x0098`–`0x06C7` in 16-byte blocks; unread reset writes went to `0x0054 + 0x00`.
+`0x0098`–`0x06D7` in 16-byte blocks (100 slots); the 2026-10-25 control run confirms the USER2 ring end too — the newest record sat at `0x0D08` (slot 99 of the 0x06D8–0x0D17 ring); unread reset writes went to `0x0054 + 0x00`.
 
 ### 5.1 Unread-records counter (8 bytes at settings[0x00:0x10]) `[SRC]` — `_getReadCommands_OnlyNewRecords`
 
-Per user *i* (little-endian device): `lastWrittenSlot_i` = high byte of the 16-bit field at bytes `[2i : 2i+2]`; `unreadRecords_i` = high byte of the field at `[2i+4 : 2i+6]`. Ring-buffer geometry: `calcRingBufferRecordReadLocations` handles the wrap-around case (`lastWrittenSlot < unreadRecords` = two reads).
+Per user *i* (omblepy bit numbering — same convention as §6): `lastWrittenSlot_i` = the FIRST byte of the 16-bit little-endian field `[2i : 2i+2]`; `unreadRecords_i` = the FIRST byte of `[2i+4 : 2i+6]`. `[CAPTURE]` the 2026-10-25 session settles this byte order on the real device: after one new USER2 measurement the unread field read back `01 00` (counter 1 in the first byte), and after the 0x8000 reset it read `00 80` — the 0x80 sits in the SECOND byte and must be ignored (reading it as the count yields the bogus 128 and full-ring mega-reads). Ring-buffer geometry: `calcRingBufferRecordReadLocations` handles the wrap-around case (`lastWrittenSlot < unreadRecords` = two reads).
 
 Reset after successful readout `[SRC]` — `resetUnreadRecordsCounter`: write `0x8000` ("no new records" code) into both 16-bit fields per user, then write the section back.
 
@@ -294,7 +294,7 @@ Empty slot marker: all bytes `0xFF` = skip (`sharedDriver.getRecords`). Undecoda
 | 3 | Measurements are SFLOAT (IEEE 11073-20601) | EEPROM records: plain bit-packed ints (sys = byte 0 + 25) | **RESOLVED** (hem-7361t.py `deviceSpecific_ParseRecordFormat`) — `[CAPTURE]` worked examples decode (§6) |
 | 4 | Read/write/end commands `0x0100 / 0x01c0 / 0x0f00` | Confirmed as frame types | **RESOLVED** — `[CAPTURE]` frames observed byte-exact |
 | 5 | Proprietary channel UUIDs | Confirmed (parent/unlock/RX x4/TX x4) | **RESOLVED** (omblepy.py `LEGACY_*`) — `[CAPTURE]` all 8 channels + handles observed (§1.2) |
-| 6 | Two users USER1/USER2 | Confirmed: 2 slots x 100 records | **RESOLVED** (hem-7361t.py) — `[CAPTURE]` USER1 ring 0x0098–0x06C7 read in full (§5) |
+| 6 | Two users USER1/USER2 | Confirmed: 2 slots x 100 records | **RESOLVED** (hem-7361t.py) — `[CAPTURE]` USER1 ring 0x0098–0x06D7 read in full (§5) |
 | 7 | Settings "read and sent back to EEPROM starting at 0x0010" | Read @0x0010, **written @0x0054** | **RESOLVED** — write address differs, critical for implementation; `[CAPTURE]` unread reset writes went to 0x0054+0x00 (§5) |
 | 8 | — (new, v1.0) | `8f00` end-of-session response carries count=0, no status byte; omblepy's "status" read is the CRC padding byte | **NEW `[CAPTURE]`** — §4.1 |
 | 9 | — (new, v1.0) | Unlock succeeds with an arbitrary 16-byte key on a never-registered device (`81 00` response) | **NEW `[CAPTURE]`** — §3.3 |

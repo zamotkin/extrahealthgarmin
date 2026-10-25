@@ -6,9 +6,13 @@ package com.zamotkin.extrahealthgarmin.omron.protocol
  * resetUnreadRecordsCounter).
  *
  * The unread-info section is 16 bytes (spec §5: settings[0x00, 0x10)); the counters
- * live in its first 8 bytes. Per user i (little-endian device):
- * lastWrittenSlot = HIGH byte of the 16-bit field at [2i : 2i+2],
- * unread count    = HIGH byte of the 16-bit field at [2i+4 : 2i+6].
+ * live in its first 8 bytes. Per user i, in omblepy bit numbering (bit k = integer bit 127-k, same
+ * as the record decoder): lastWrittenSlot = the FIRST byte of the pair
+ * [2i : 2i+2]; unread count = the FIRST byte of [2i+4 : 2i+6]. Empirically
+ * settled on the real HEM-7361T-ALRU (2026-10-25 capture): unread reads
+ * back 01 00 after one new measurement and 00 80 after the 0x8000 reset -
+ * the 0x80 lives in the SECOND byte and must be ignored (reading it as the
+ * count yields the bogus 128 and plans a full-ring mega-read).
  *
  * Pure JVM — no Android types. Stateless, thread-safe.
  */
@@ -24,8 +28,8 @@ class ReadPlanCalculator {
         require(unreadInfoSection.size >= 8) { "unread info section must be at least 8 bytes" }
         require(userIdx in 0..1) { "userIdx must be 0 or 1, is $userIdx" }
 
-        val lastWrittenSlot = fieldHighByte(unreadInfoSection, 2 * userIdx)
-        val unread = fieldHighByte(unreadInfoSection, 2 * userIdx + 4)
+        val lastWrittenSlot = fieldCounterByte(unreadInfoSection, 2 * userIdx)
+        val unread = fieldCounterByte(unreadInfoSection, 2 * userIdx + 4)
         val base = OmronProtocol.USER_RECORD_ADDRESSES[userIdx]
         val ring = OmronProtocol.RECORDS_PER_USER
         val recordSize = OmronProtocol.RECORD_BYTE_SIZE
@@ -61,7 +65,10 @@ class ReadPlanCalculator {
         return copy
     }
 
-    /** High byte of the 16-bit little-endian field starting at [fieldOffset]. */
-    private fun fieldHighByte(section: ByteArray, fieldOffset: Int): Int =
-        section[fieldOffset + 1].toInt() and 0xFF
+    /**
+     * Counter byte of the 16-bit little-endian field starting at [fieldOffset]:
+     * omblepy reads bits 8-15 of the LE value — the FIRST byte of the pair.
+     */
+    private fun fieldCounterByte(section: ByteArray, fieldOffset: Int): Int =
+        section[fieldOffset].toInt() and 0xFF
 }
