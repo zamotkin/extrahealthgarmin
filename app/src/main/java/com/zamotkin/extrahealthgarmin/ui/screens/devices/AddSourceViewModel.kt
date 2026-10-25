@@ -35,6 +35,11 @@ import java.util.UUID
  * re-consulting the registry) is what keeps the flow capability-driven: the
  * standard 0x1810 driver (task xlg.9) registers its type and the picker,
  * the pair step and the saved defaults follow with no flow changes.
+ *
+ * @property supportsUserSlots whether readings carry a device user slot
+ *   (the one-time pick of task xlg.4 renders for such types)
+ * @property userSlots the pickable device user slots, 1-based; empty when
+ *   [supportsUserSlots] is false (nothing to configure)
  */
 data class SourceTypeOption(
     val typeId: String,
@@ -42,6 +47,7 @@ data class SourceTypeOption(
     val isBle: Boolean,
     val requiresPairingKey: Boolean,
     val supportsUserSlots: Boolean,
+    val userSlots: List<Int>,
     val supportedSyncModes: Set<SyncMode>,
 )
 
@@ -89,8 +95,9 @@ sealed interface AddSourceUiState {
      * key-requiring BLE type renders the 16-byte key entry ([keyError]
      * marks a rejected key); a singleton renders the permission step
      * ([permissionGranted] after the pre-check, [permissionDenied] after a
-     * refused grant). Task xlg.4 inserts the user-slot pick here for
-     * SLOTS-attribution types.
+     * refused grant). SLOTS-attribution types pick their device user once
+     * here (task xlg.4): [selectedUserSlot] is the pick, [slotError] marks
+     * a save attempted without one.
      */
     data class Pairing(
         val option: SourceTypeOption,
@@ -98,6 +105,8 @@ sealed interface AddSourceUiState {
         val keyError: Boolean = false,
         val permissionGranted: Boolean = false,
         val permissionDenied: Boolean = false,
+        val selectedUserSlot: Int? = null,
+        val slotError: Boolean = false,
     ) : AddSourceUiState
 
     /** The ConnectedSource row is being persisted. */
@@ -333,13 +342,26 @@ open class AddSourceViewModel(
     }
 
     /**
-     * Submits the typed pairing key: a wrong-length key is rejected BEFORE
-     * any save; a valid one is stored through the seam and the source
-     * saved.
+     * The one-time device user pick (task xlg.4, epic R4): stores the choice
+     * in the pairing state — it is written to [ConnectedSource.userSlot] on
+     * save and shown read-only in the source detail afterwards. A no-op for
+     * types without user attribution.
+     */
+    fun selectUserSlot(slot: Int) {
+        val state = _uiState.value as? AddSourceUiState.Pairing ?: return
+        if (!state.option.supportsUserSlots) return
+        _uiState.value = state.copy(selectedUserSlot = slot, slotError = false)
+    }
+
+    /**
+     * Submits the typed pairing key: a SLOTS type without its user pick or a
+     * wrong-length key is rejected BEFORE any save; a valid one is stored
+     * through the seam and the source saved.
      */
     fun submitPairingKey(key: String) {
         val state = _uiState.value as? AddSourceUiState.Pairing ?: return
         if (!state.option.requiresPairingKey) return
+        if (missingUserSlot(state)) return
         val keyBytes = key.toByteArray(Charsets.UTF_8)
         if (keyBytes.size != OmronProtocol.PAIRING_KEY_BYTES) {
             _uiState.value = state.copy(keyError = true)
@@ -355,7 +377,7 @@ open class AddSourceViewModel(
             )
             return
         }
-        persist(state.option, state.device, keyRef)
+        persist(state.option, state.device, keyRef, state.selectedUserSlot)
     }
 
     /** Typing after a rejected key clears the error marker. */
@@ -370,13 +392,27 @@ open class AddSourceViewModel(
     fun saveSource() {
         val state = _uiState.value as? AddSourceUiState.Pairing ?: return
         if (state.option.requiresPairingKey) return
-        persist(state.option, state.device, null)
+        if (missingUserSlot(state)) return
+        persist(state.option, state.device, null, state.selectedUserSlot)
+    }
+
+    /**
+     * True when a SLOTS-attribution type has no user pick yet — marks the
+     * state so the screen can demand the pick. Changing the slot later is
+     * remove-and-re-add by design (epic R4): nothing here can be edited
+     * once saved.
+     */
+    private fun missingUserSlot(state: AddSourceUiState.Pairing): Boolean {
+        if (!state.option.supportsUserSlots || state.selectedUserSlot != null) return false
+        _uiState.value = state.copy(slotError = true)
+        return true
     }
 
     private fun persist(
         option: SourceTypeOption,
         device: DiscoveredBleDevice?,
         pairingKeyRef: String?,
+        userSlot: Int?,
     ) {
         _uiState.value = AddSourceUiState.Saving
         val existing = store.load()
@@ -389,7 +425,10 @@ open class AddSourceViewModel(
             name = device?.let { it.name.ifEmpty { it.address } } ?: option.typeId,
             address = device?.address,
             pairingKeyRef = pairingKeyRef,
-            userSlot = null, // task xlg.4 adds the one-time slot pick
+            // The one-time user pick; null for types without user
+            // attribution (selectUserSlot is a no-op for them, so a NONE
+            // source can never carry a slot here).
+            userSlot = userSlot,
             syncMode = defaultSyncMode(option),
             createdAt = clock(),
         )
@@ -430,6 +469,7 @@ open class AddSourceViewModel(
         isBle = type is BleBpSourceType,
         requiresPairingKey = type.capabilities.requiresPairingKey,
         supportsUserSlots = type.capabilities.userAttribution == UserAttribution.SLOTS,
+        userSlots = type.capabilities.userSlots,
         supportedSyncModes = type.capabilities.supportedSyncModes,
     )
 

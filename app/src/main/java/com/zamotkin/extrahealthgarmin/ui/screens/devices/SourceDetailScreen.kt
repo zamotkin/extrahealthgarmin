@@ -28,6 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zamotkin.extrahealthgarmin.R
+import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.ui.kit.components.EmptyState
 import com.zamotkin.extrahealthgarmin.ui.kit.components.LabeledValue
 import com.zamotkin.extrahealthgarmin.ui.kit.components.SectionCard
@@ -38,8 +39,11 @@ import java.util.Date
  * One connected source (task tefal2garmin-app-redesign-v3-xlg.3): the
  * detail card (type, address, connected since) and the destructive remove
  * action behind a confirmation dialog. Removal drops ONLY the connection -
- * stored readings stay in Room. The user-slot row lands with task xlg.4
- * and the sync-mode toggle with xlg.5; only what exists today is shipped.
+ * stored readings stay in Room. Task xlg.4 added the user-attribution
+ * block: sources with device user slots show their picked user READ-ONLY
+ * (changing it is remove-and-re-add by design), sources without attribution
+ * state that every reading is the app owner's. The sync-mode toggle lands
+ * with task xlg.5.
  */
 @Composable
 fun SourceDetailScreen(
@@ -94,6 +98,32 @@ fun SourceDetailScreen(
                         value = address,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
+                }
+                // User attribution (task xlg.4): the picked monitor user is
+                // read-only here - re-picking means removing and re-adding
+                // the source; sources without attribution get the info line
+                // instead, never a slot row.
+                when (type?.capabilities?.userAttribution) {
+                    UserAttribution.SLOTS -> {
+                        LabeledValue(
+                            label = stringResource(R.string.source_detail_user_slot),
+                            value = source.userSlot
+                                ?.let { slot -> stringResource(R.string.source_user_slot_name, slot) }
+                                ?: stringResource(R.string.source_detail_user_slot_unset),
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    UserAttribution.NONE -> {
+                        Text(
+                            text = stringResource(R.string.source_detail_owner_attribution),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    null -> Unit // unknown type - no attribution row
                 }
                 LabeledValue(
                     label = stringResource(R.string.source_detail_connected),

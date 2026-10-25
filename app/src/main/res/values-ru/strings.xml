@@ -149,6 +149,11 @@
     <string name="add_source_key_label">Ключ сопряжения</string>
     <string name="add_source_key_hint">Введите ровно 16 символов. Приложение запишет этот ключ в тонометр при первой передаче.</string>
     <string name="add_source_key_error">Ключ сопряжения должен содержать ровно 16 символов.</string>
+    <!-- Однократный выбор пользователя тонометра (задача
+         tefal2garmin-app-redesign-v3-xlg.4): показывается только для типов
+         источников с пользовательскими слотами (Omron). -->
+    <string name="add_source_slot_hint">Какой пользователь тонометра вы? В приложение попадут измерения только этого пользователя.</string>
+    <string name="add_source_slot_error">Выберите пользователя тонометра, чтобы продолжить.</string>
     <string name="add_source_bonding_hint">Этот тонометр сопрягается через системное окно Bluetooth — оно появится при первом чтении.</string>
     <string name="add_source_hc_grant_hint">Доступ к давлению предоставляется в приложении Health Connect.</string>
     <string name="add_source_hc_grant">Предоставить доступ</string>
@@ -168,6 +173,14 @@
     <string name="source_detail_type">Тип</string>
     <string name="source_detail_address">Адрес</string>
     <string name="source_detail_connected">Подключён</string>
+    <!-- Пользователь в карточке источника (задача
+         tefal2garmin-app-redesign-v3-xlg.4): строка слота только для чтения
+         у источников со слотами; для остальных — пояснение. Строка
+         source_user_slot_name общая с выбором при добавлении источника. -->
+    <string name="source_user_slot_name">Пользователь %1$d</string>
+    <string name="source_detail_user_slot">Пользователь тонометра</string>
+    <string name="source_detail_user_slot_unset">Не выбран — удалите источник и добавьте снова, чтобы выбрать</string>
+    <string name="source_detail_owner_attribution">Все измерения относятся к владельцу телефона</string>
     <string name="source_remove">Удалить источник</string>
     <string name="source_remove_confirm_title">Удалить этот источник?</string>
     <string name="source_remove_confirm_text">Будет удалено только подключение; сохранённые измерения останутся.</string>

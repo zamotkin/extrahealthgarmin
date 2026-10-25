@@ -30,12 +30,29 @@ enum class SyncMode { HISTORY, CURRENT }
  * @property supportedSyncModes the modes [BpSource.read] accepts
  * @property requiresPairingKey whether connecting needs an app-level
  *   pairing key (Omron's 16-byte key; standard 0x1810 uses system bonding)
+ * @property userSlotCount how many device user slots a
+ *   [UserAttribution.SLOTS] source picks from (the M7 carries two; slots
+ *   are 1-based). Ignored for [UserAttribution.NONE] sources.
  */
 data class SourceCapabilities(
     val userAttribution: UserAttribution,
     val supportedSyncModes: Set<SyncMode>,
-    val requiresPairingKey: Boolean
-)
+    val requiresPairingKey: Boolean,
+    val userSlotCount: Int = 2
+) {
+
+    /**
+     * The pickable device user slots, 1-based — what the add-source flow's
+     * one-time pick renders; empty for [UserAttribution.NONE] sources
+     * (nothing to configure, epic R4).
+     */
+    val userSlots: List<Int>
+        get() = if (userAttribution == UserAttribution.SLOTS) {
+            (1..userSlotCount).toList()
+        } else {
+            emptyList()
+        }
+}
 
 /**
  * One vendor-neutral blood-pressure reading — the common shape behind

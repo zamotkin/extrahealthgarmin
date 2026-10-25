@@ -90,7 +90,8 @@ class OmronBleSource(
         val CAPABILITIES = SourceCapabilities(
             userAttribution = UserAttribution.SLOTS,
             supportedSyncModes = setOf(SyncMode.HISTORY, SyncMode.CURRENT),
-            requiresPairingKey = true
+            requiresPairingKey = true,
+            userSlotCount = 2
         )
     }
 }

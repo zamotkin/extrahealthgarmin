@@ -157,6 +157,26 @@ class OmronViewModelTest {
         override suspend fun allForUser(userSlot: Int): List<BloodPressureRecordEntity> =
             rows.filter { it.userSlot == userSlot }
                 .sortedByDescending { it.timestampEpochSec }
+
+        // Source-scoped queries (task tefal2garmin-app-redesign-v3-xlg.4):
+        // the legacy view model never calls them, but the interface must be whole.
+
+        override suspend fun allForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> =
+            rows.filter { it.sourceId == sourceId && (userSlot == null || it.userSlot == userSlot) }
+                .sortedByDescending { it.timestampEpochSec }
+
+        override suspend fun unsyncedForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> =
+            rows.filter {
+                it.sourceId == sourceId && !it.synced &&
+                    (userSlot == null || it.userSlot == userSlot)
+            }
+                .sortedBy { it.timestampEpochSec }
     }
 
     // --- helpers -------------------------------------------------------- //

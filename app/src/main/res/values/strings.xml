@@ -150,6 +150,10 @@
     <string name="add_source_key_label">Pairing key</string>
     <string name="add_source_key_hint">Enter exactly 16 characters. The app programs this key into the monitor on the first transfer.</string>
     <string name="add_source_key_error">The pairing key must be exactly 16 characters.</string>
+    <!-- One-time device user pick (task tefal2garmin-app-redesign-v3-xlg.4):
+         rendered only for source types with user slots (Omron). -->
+    <string name="add_source_slot_hint">Which monitor user are you? Only this user\'s readings enter the app.</string>
+    <string name="add_source_slot_error">Pick the monitor user to continue.</string>
     <string name="add_source_bonding_hint">This monitor pairs through the Android system Bluetooth dialog, which appears on the first read.</string>
     <string name="add_source_hc_grant_hint">Blood-pressure access is granted in the Health Connect app.</string>
     <string name="add_source_hc_grant">Grant access</string>
@@ -169,6 +173,14 @@
     <string name="source_detail_type">Type</string>
     <string name="source_detail_address">Address</string>
     <string name="source_detail_connected">Connected</string>
+    <!-- User attribution in the source detail (task
+         tefal2garmin-app-redesign-v3-xlg.4): the slot row is read-only for
+         sources with user slots; the info line covers the rest.
+         source_user_slot_name is shared with the add-source flow's pick. -->
+    <string name="source_user_slot_name">User %1$d</string>
+    <string name="source_detail_user_slot">Device user</string>
+    <string name="source_detail_user_slot_unset">Not picked — remove and re-add the source to choose</string>
+    <string name="source_detail_owner_attribution">All readings are attributed to the app owner</string>
     <string name="source_remove">Remove source</string>
     <string name="source_remove_confirm_title">Remove this source?</string>
     <string name="source_remove_confirm_text">Only the connection is removed; stored readings are kept.</string>

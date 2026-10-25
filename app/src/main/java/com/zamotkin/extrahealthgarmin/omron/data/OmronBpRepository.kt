@@ -98,6 +98,34 @@ class OmronBpRepository(
         }.getOrElse { e -> failed(e) { emptyList() } }
 
     /**
+     * Every stored reading of one source, newest first — of one user slot of
+     * it when given (the epic-R4 display filter: rows of other slots stay
+     * invisible once the source has its picked user), of every slot of the
+     * source otherwise (task tefal2garmin-app-redesign-v3-xlg.4). Empty on
+     * DAO failure.
+     */
+    suspend fun allForSource(
+        sourceId: String,
+        userSlot: Int? = null,
+    ): List<BloodPressureReading> =
+        runCatching {
+            dao.allForSource(sourceId, userSlot).map { it.toDomain() }
+        }.getOrElse { e -> failed(e) { emptyList() } }
+
+    /**
+     * Un-synced readings of one source, oldest first — of one user slot of
+     * it when given, of every slot otherwise. The upload-side R4 filter for
+     * task xlg.6. Empty on DAO failure.
+     */
+    suspend fun unsyncedForSource(
+        sourceId: String,
+        userSlot: Int? = null,
+    ): List<BloodPressureReading> =
+        runCatching {
+            dao.unsyncedForSource(sourceId, userSlot).map { it.toDomain() }
+        }.getOrElse { e -> failed(e) { emptyList() } }
+
+    /**
      * Deletes every stored reading (the settings "delete all" action).
      * True when the delete ran; false on DAO failure.
      */

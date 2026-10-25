@@ -18,6 +18,9 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -98,6 +101,7 @@ fun AddSourceFlowScreen(
                     pairingKey = it
                     if (s.keyError) viewModel.clearKeyError()
                 },
+                onSelectSlot = viewModel::selectUserSlot,
                 onSubmitKey = { viewModel.submitPairingKey(pairingKey) },
                 onSave = viewModel::saveSource,
                 onGrantHc = {
@@ -226,6 +230,7 @@ private fun PairingContent(
     state: AddSourceUiState.Pairing,
     key: String,
     onKeyChanged: (String) -> Unit,
+    onSelectSlot: (Int) -> Unit,
     onSubmitKey: () -> Unit,
     onSave: () -> Unit,
     onGrantHc: () -> Unit,
@@ -242,6 +247,41 @@ private fun PairingContent(
             StatusRow(
                 label = device.name.ifEmpty { device.address },
                 value = device.address,
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+    if (state.option.supportsUserSlots) {
+        // One-time device user pick (task xlg.4): shown only for sources
+        // whose readings carry a user slot - Omron monitors and the like.
+        // Sources without user attribution (Health Connect, standard
+        // 0x1810) skip the step entirely.
+        Text(
+            text = stringResource(R.string.add_source_slot_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            state.option.userSlots.forEachIndexed { index, slot ->
+                SegmentedButton(
+                    selected = state.selectedUserSlot == slot,
+                    onClick = { onSelectSlot(slot) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = state.option.userSlots.size,
+                    ),
+                ) {
+                    Text(text = stringResource(R.string.source_user_slot_name, slot))
+                }
+            }
+        }
+        if (state.slotError) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.add_source_slot_error),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
         Spacer(modifier = Modifier.height(16.dp))

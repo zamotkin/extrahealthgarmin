@@ -68,6 +68,35 @@ interface BloodPressureDao {
     )
     suspend fun allForUser(userSlot: Int): List<BloodPressureRecordEntity>
 
+    /**
+     * Every stored record of one source, newest first (no row limit) — of
+     * one user slot of it when [userSlot] is given (the epic-R4 display
+     * filter: pre-existing rows of other slots stay invisible once a source
+     * has its picked user), of every slot otherwise (the
+     * no-user-attribution shape). Task tefal2garmin-app-redesign-v3-xlg.4.
+     */
+    @Query(
+        "SELECT * FROM blood_pressure_records " +
+            "WHERE sourceId = :sourceId " +
+            "AND (:userSlot IS NULL OR userSlot = :userSlot) " +
+            "ORDER BY timestampEpochSec DESC"
+    )
+    suspend fun allForSource(sourceId: String, userSlot: Int?): List<BloodPressureRecordEntity>
+
+    /**
+     * Un-synced records of one source, oldest first — of one user slot of
+     * it when [userSlot] is given, of every slot otherwise. The upload-side
+     * epic-R4 filter (task tefal2garmin-app-redesign-v3-xlg.4; the upload
+     * wiring itself lands with task xlg.6).
+     */
+    @Query(
+        "SELECT * FROM blood_pressure_records " +
+            "WHERE sourceId = :sourceId AND synced = 0 " +
+            "AND (:userSlot IS NULL OR userSlot = :userSlot) " +
+            "ORDER BY timestampEpochSec ASC"
+    )
+    suspend fun unsyncedForSource(sourceId: String, userSlot: Int?): List<BloodPressureRecordEntity>
+
     /** Deletes every stored record (the settings "delete all readings" action). */
     @Query("DELETE FROM blood_pressure_records")
     suspend fun deleteAll()

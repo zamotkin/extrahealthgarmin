@@ -104,6 +104,30 @@ class OmronBpRepositoryTest {
                 .filter { it.userSlot == userSlot }
                 .sortedByDescending { it.timestampEpochSec }
         }
+
+        override suspend fun allForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter { it.sourceId == sourceId && (userSlot == null || it.userSlot == userSlot) }
+                .sortedByDescending { it.timestampEpochSec }
+        }
+
+        override suspend fun unsyncedForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter {
+                    it.sourceId == sourceId &&
+                        !it.synced &&
+                        (userSlot == null || it.userSlot == userSlot)
+                }
+                .sortedBy { it.timestampEpochSec }
+        }
     }
 
     // ------------------------------------------------------------------ //
@@ -306,6 +330,79 @@ class OmronBpRepositoryTest {
     }
 
     // ------------------------------------------------------------------ //
+    //  Source-scoped queries (task tefal2garmin-app-redesign-v3-xlg.4)    //
+    // ------------------------------------------------------------------ //
+
+    /** Display filter: one source's rows only, other sources stay invisible. */
+    @Test
+    fun `allForSource returns only that source's rows newest first`() = runTest {
+        repository.storeReadings(
+            listOf(reading(1_000), reading(2_000)),
+            sourceId = "source-a"
+        )
+        repository.storeReadings(listOf(reading(3_000)), sourceId = "source-b")
+
+        val rows = repository.allForSource(sourceId = "source-a")
+
+        assertEquals(listOf(2_000L, 1_000L), rows.map { it.timestampEpochSec })
+    }
+
+    /**
+     * The R4 display/upload filter: rows of other user slots - read before a
+     * slot was picked - stay invisible once the source has its user.
+     */
+    @Test
+    fun `allForSource with a user slot hides the other slot's rows`() = runTest {
+        repository.storeReadings(
+            listOf(
+                reading(1_000, userSlot = 1),
+                reading(2_000, userSlot = 2),
+                reading(3_000, userSlot = 1),
+            ),
+            sourceId = "source-a"
+        )
+
+        val selected = repository.allForSource(sourceId = "source-a", userSlot = 2)
+
+        assertEquals(listOf(2_000L), selected.map { it.timestampEpochSec })
+    }
+
+    /** No slot filter: every slot of the source (the NONE-attribution shape). */
+    @Test
+    fun `allForSource without a slot returns every slot of the source`() = runTest {
+        repository.storeReadings(
+            listOf(reading(1_000, userSlot = 1), reading(2_000, userSlot = 2)),
+            sourceId = "source-a"
+        )
+        repository.storeReadings(listOf(reading(3_000, userSlot = 1)), sourceId = "source-b")
+
+        val all = repository.allForSource(sourceId = "source-a")
+
+        assertEquals(listOf(2_000L, 1_000L), all.map { it.timestampEpochSec })
+    }
+
+    /** Upload filter: unsynced rows of one source (and slot), oldest first. */
+    @Test
+    fun `unsyncedForSource filters source and slot and skips synced rows`() = runTest {
+        repository.storeReadings(
+            listOf(
+                reading(1_000, userSlot = 1),
+                reading(2_000, userSlot = 2),
+                reading(3_000, userSlot = 1),
+            ),
+            sourceId = "source-a"
+        )
+        repository.storeReadings(listOf(reading(4_000, userSlot = 1)), sourceId = "source-b")
+        repository.markSynced(1_000, userSlot = 1)
+
+        val uploadSlot1 = repository.unsyncedForSource(sourceId = "source-a", userSlot = 1)
+        val uploadAllSlots = repository.unsyncedForSource(sourceId = "source-a")
+
+        assertEquals(listOf(3_000L), uploadSlot1.map { it.timestampEpochSec })
+        assertEquals(listOf(2_000L, 3_000L), uploadAllSlots.map { it.timestampEpochSec })
+    }
+
+    // ------------------------------------------------------------------ //
     //  Never throws                                                       //
     // ------------------------------------------------------------------ //
 
@@ -339,13 +436,17 @@ class OmronBpRepositoryTest {
         val marked = repository.markSynced(1_000, userSlot = 1)
         val latest = repository.latest(userSlot = 1)
         val all = repository.allForUser(userSlot = 1)
+        val allForSource = repository.allForSource(sourceId = "source-a")
+        val unsyncedForSource = repository.unsyncedForSource(sourceId = "source-a")
 
         assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0), store)
         assertEquals(emptyList<BloodPressureReading>(), unsynced)
         assertFalse(marked)
         assertEquals(emptyList<BloodPressureReading>(), latest)
         assertEquals(emptyList<BloodPressureReading>(), all)
-        assertEquals(5, errors.size)
+        assertEquals(emptyList<BloodPressureReading>(), allForSource)
+        assertEquals(emptyList<BloodPressureReading>(), unsyncedForSource)
+        assertEquals(7, errors.size)
         assertTrue(errors.all { it is IllegalStateException })
     }
 

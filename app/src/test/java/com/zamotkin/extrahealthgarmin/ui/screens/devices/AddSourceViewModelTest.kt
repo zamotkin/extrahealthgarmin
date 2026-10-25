@@ -355,6 +355,7 @@ class AddSourceViewModelTest {
     fun `wrong-length pairing key is rejected before any save`() {
         val vm = newViewModel()
         inPairingWithDevice(vm)
+        vm.selectUserSlot(1)
         vm.submitPairingKey("123456789012345") // 15 bytes
         val state = vm.uiState.value as AddSourceUiState.Pairing
         assertTrue(state.keyError)
@@ -369,6 +370,7 @@ class AddSourceViewModelTest {
     fun `clearKeyError resets the marker when the user edits the key`() {
         val vm = newViewModel()
         inPairingWithDevice(vm)
+        vm.selectUserSlot(1)
         vm.submitPairingKey("short")
         vm.clearKeyError()
         assertFalse((vm.uiState.value as AddSourceUiState.Pairing).keyError)
@@ -385,6 +387,7 @@ class AddSourceViewModelTest {
         store.sources = listOf(existing)
         val vm = newViewModel()
         inPairingWithDevice(vm)
+        vm.selectUserSlot(2)
         vm.submitPairingKey("1234567890123456")
         val done = vm.uiState.value as AddSourceUiState.Done
         assertEquals(1, storedKeys.size)
@@ -398,7 +401,7 @@ class AddSourceViewModelTest {
         assertEquals("OMRON M7", saved.name)
         assertEquals("AA:BB:CC:DD:EE:01", saved.address)
         assertEquals("stored-key-ref", saved.pairingKeyRef)
-        assertNull(saved.userSlot) // task xlg.4 adds the one-time pick
+        assertEquals(2, saved.userSlot) // the one-time pick (task xlg.4)
         assertEquals(SyncMode.HISTORY, saved.syncMode)
         assertEquals(nowMs, saved.createdAt)
         assertEquals(saved, store.saved[0][1])
@@ -410,6 +413,7 @@ class AddSourceViewModelTest {
         vm.selectOption("key-ble")
         scanner.sessions.last().onDevice(DiscoveredBleDevice("Омрон M7", "AA:BB:CC:DD:EE:05", -55))
         vm.selectDevice(DiscoveredBleDevice("Омрон M7", "AA:BB:CC:DD:EE:05", -55))
+        vm.selectUserSlot(1)
         vm.submitPairingKey("1234567890123456")
         val done = vm.uiState.value as AddSourceUiState.Done
         assertEquals("Омрон M7", done.source.name)
@@ -421,6 +425,7 @@ class AddSourceViewModelTest {
         vm.selectOption("key-ble")
         scanner.sessions.last().onDevice(DiscoveredBleDevice("", "AA:BB:CC:DD:EE:06", -55))
         vm.selectDevice(DiscoveredBleDevice("", "AA:BB:CC:DD:EE:06", -55))
+        vm.selectUserSlot(1)
         vm.submitPairingKey("1234567890123456")
         assertEquals("AA:BB:CC:DD:EE:06", (vm.uiState.value as AddSourceUiState.Done).source.name)
     }
@@ -450,9 +455,98 @@ class AddSourceViewModelTest {
         store.failSave = true
         val vm = newViewModel()
         inPairingWithDevice(vm)
+        vm.selectUserSlot(1)
         vm.submitPairingKey("1234567890123456")
         val state = vm.uiState.value as AddSourceUiState.Error
         assertEquals(R.string.add_source_save_error, state.messageRes)
+    }
+
+    // ---- user-slot pick (task xlg.4) -------------------------------- //
+
+    @Test
+    fun `slots type pairing offers the type's user slots`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm) // key-ble = SLOTS attribution
+        val state = vm.uiState.value as AddSourceUiState.Pairing
+        assertTrue(state.option.supportsUserSlots)
+        assertEquals(listOf(1, 2), state.option.userSlots)
+        assertNull(state.selectedUserSlot)
+        assertFalse(state.slotError)
+    }
+
+    @Test
+    fun `none type pairing offers no user slots`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm, "keyless-ble") // NONE attribution
+        val state = vm.uiState.value as AddSourceUiState.Pairing
+        assertFalse(state.option.supportsUserSlots)
+        assertTrue(state.option.userSlots.isEmpty())
+        assertNull(state.selectedUserSlot)
+    }
+
+    @Test
+    fun `selecting a user slot stores the choice in the pairing state`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm)
+        vm.selectUserSlot(2)
+        assertEquals(2, (vm.uiState.value as AddSourceUiState.Pairing).selectedUserSlot)
+    }
+
+    @Test
+    fun `selectUserSlot is a no-op for types without user slots`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm, "keyless-ble")
+        vm.selectUserSlot(1)
+        val state = vm.uiState.value as AddSourceUiState.Pairing
+        assertNull(state.selectedUserSlot)
+        assertFalse(state.slotError)
+    }
+
+    @Test
+    fun `submitting without a picked slot marks the error and saves nothing`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm)
+        vm.submitPairingKey("1234567890123456")
+        val state = vm.uiState.value as AddSourceUiState.Pairing
+        assertTrue(state.slotError)
+        assertFalse(state.keyError) // the key was fine; the slot is the blocker
+        assertTrue(store.saved.isEmpty())
+        assertTrue(storedKeys.isEmpty())
+    }
+
+    @Test
+    fun `picking a slot after the error clears it`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm)
+        vm.submitPairingKey("1234567890123456")
+        vm.selectUserSlot(1)
+        assertFalse((vm.uiState.value as AddSourceUiState.Pairing).slotError)
+    }
+
+    @Test
+    fun `the picked slot is persisted into the connected source`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm)
+        vm.selectUserSlot(2)
+        vm.submitPairingKey("1234567890123456")
+        val saved = (vm.uiState.value as AddSourceUiState.Done).source
+        assertEquals(2, saved.userSlot)
+        assertEquals(2, store.saved[0].single().userSlot)
+    }
+
+    @Test
+    fun `reset forgets a picked slot`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm)
+        vm.selectUserSlot(1)
+        vm.reset()
+        // A fresh flow to pairing starts with no slot pre-selected.
+        vm.selectOption("key-ble")
+        scanner.sessions.last().onDevice(DiscoveredBleDevice("OMRON M7", "AA:BB:CC:DD:EE:01", -60))
+        vm.selectDevice(DiscoveredBleDevice("OMRON M7", "AA:BB:CC:DD:EE:01", -60))
+        val state = vm.uiState.value as AddSourceUiState.Pairing
+        assertNull(state.selectedUserSlot)
+        assertFalse(state.slotError)
     }
 
     // ---- pair + save (Health Connect) ------------------------------- //
