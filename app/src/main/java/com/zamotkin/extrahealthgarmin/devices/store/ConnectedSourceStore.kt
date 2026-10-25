@@ -25,8 +25,18 @@ import java.io.IOException
  *   source has no user attribution)
  * @property syncMode the configured read mode; see
  *   [com.zamotkin.extrahealthgarmin.devices.api.SyncMode]
- * @property lastReadAnchor the last successful read anchor (task .5;
- *   null until the first successful Current read)
+ * @property lastReadAnchor app-side high-water mark of ingested readings
+ *   (task .5): the timestamp, epoch seconds, of the newest reading of the
+ *   last successful pass - advanced only by the read orchestrator, never
+ *   on a failed pass, never regressing. Bookkeeping only: the source's own
+ *   anchor (Omron's device counters, Health Connect's changes token)
+ *   remains the real Current anchor; this is the model for sources without
+ *   one. Null until the first successful pass that ingested a reading.
+ * @property fullReadFallbackPending set after a failed Current read
+ *   (task .5): the pass may have consumed the source's unread window
+ *   before dying, so the NEXT read runs one full-ring History plan to
+ *   recover; cleared once such a pass succeeds. Transient by nature, but
+ *   persisted so a restart cannot reopen the data-loss window.
  * @property createdAt when the source was connected, epoch ms
  */
 data class ConnectedSource(
@@ -38,6 +48,7 @@ data class ConnectedSource(
     val userSlot: Int? = null,
     val syncMode: SyncMode = SyncMode.HISTORY,
     val lastReadAnchor: Long? = null,
+    val fullReadFallbackPending: Boolean = false,
     val createdAt: Long
 )
 
@@ -51,6 +62,31 @@ interface ConnectedSourceStore {
      * when the write failed (logged, never thrown - the old file survives).
      */
     fun save(sources: List<ConnectedSource>): Boolean
+
+    /**
+     * Updates one stored row: applies [update] to the source with [id] and
+     * persists the list. True when the row was found and the store ended up
+     * holding the updated row (an update that changes nothing counts);
+     * false when the id is unknown or the write failed.
+     *
+     * The default is a plain load-modify-save - fine for single-threaded
+     * fakes; [FileConnectedSourceStore] overrides it as one atomic
+     * load-modify-save so concurrent writers (the read orchestrator's
+     * anchor bookkeeping, a mode toggle in the UI) cannot lose each other's
+     * row changes.
+     */
+    fun update(
+        id: String,
+        update: (ConnectedSource) -> ConnectedSource,
+    ): Boolean {
+        val rows = load()
+        val index = rows.indexOfFirst { it.id == id }
+        if (index < 0) return false
+        val updated = update(rows[index])
+        if (updated == rows[index]) return true
+        val next = rows.toMutableList().apply { set(index, updated) }
+        return save(next)
+    }
 }
 
 /**
@@ -119,6 +155,7 @@ class FileConnectedSourceStore(private val file: File) : ConnectedSourceStore {
                 userSlot = item.optNullableInt(KEY_USER_SLOT),
                 syncMode = parseSyncMode(item.optString(KEY_SYNC_MODE)),
                 lastReadAnchor = item.optNullableLong(KEY_LAST_READ_ANCHOR),
+                fullReadFallbackPending = item.optBoolean(KEY_FULL_READ_FALLBACK, false),
                 createdAt = item.getLong(KEY_CREATED_AT)
             )
         }
@@ -137,9 +174,28 @@ class FileConnectedSourceStore(private val file: File) : ConnectedSourceStore {
                     .put(KEY_USER_SLOT, source.userSlot ?: JSONObject.NULL)
                     .put(KEY_SYNC_MODE, source.syncMode.name)
                     .put(KEY_LAST_READ_ANCHOR, source.lastReadAnchor ?: JSONObject.NULL)
+                    .put(KEY_FULL_READ_FALLBACK, source.fullReadFallbackPending)
                     .put(KEY_CREATED_AT, source.createdAt)
             })
         )
+    }
+
+    /**
+     * [update][ConnectedSourceStore.update] as one atomic load-modify-save
+     * under the store's lock: a mode toggle in the UI cannot interleave
+     * with the read orchestrator's anchor write and lose either change.
+     */
+    override fun update(
+        id: String,
+        update: (ConnectedSource) -> ConnectedSource,
+    ): Boolean = synchronized(lock) {
+        val rows = load()
+        val index = rows.indexOfFirst { it.id == id }
+        if (index < 0) return false
+        val updated = update(rows[index])
+        if (updated == rows[index]) return true
+        val next = rows.toMutableList().apply { set(index, updated) }
+        save(next)
     }
 
     /** A stored mode string that no longer parses keeps the default. */
@@ -163,6 +219,7 @@ class FileConnectedSourceStore(private val file: File) : ConnectedSourceStore {
         const val KEY_USER_SLOT = "userSlot"
         const val KEY_SYNC_MODE = "syncMode"
         const val KEY_LAST_READ_ANCHOR = "lastReadAnchor"
+        const val KEY_FULL_READ_FALLBACK = "fullReadFallbackPending"
         const val KEY_CREATED_AT = "createdAt"
     }
 }

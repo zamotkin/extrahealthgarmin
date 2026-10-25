@@ -13,6 +13,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zamotkin.extrahealthgarmin.R
+import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.ui.kit.components.EmptyState
 import com.zamotkin.extrahealthgarmin.ui.kit.components.LabeledValue
@@ -42,8 +46,11 @@ import java.util.Date
  * stored readings stay in Room. Task xlg.4 added the user-attribution
  * block: sources with device user slots show their picked user READ-ONLY
  * (changing it is remove-and-re-add by design), sources without attribution
- * state that every reading is the app owner's. The sync-mode toggle lands
- * with task xlg.5.
+ * state that every reading is the app owner's. Task xlg.5 added the
+ * sync-mode block ([SyncModeSection]): sources supporting both modes get
+ * the segmented History/Current toggle (persisted through
+ * [SourcesViewModel.setSyncMode]); single-mode sources get an info line
+ * naming their one supported mode.
  */
 @Composable
 fun SourceDetailScreen(
@@ -130,6 +137,61 @@ fun SourceDetailScreen(
                     value = remember(source.createdAt) { formatDate(source.createdAt) },
                 )
             }
+            // Sync mode (task xlg.5): the segmented History/Current control
+            // renders ONLY for sources whose capabilities include both
+            // modes; single-mode sources get an info line naming their one
+            // supported mode, unknown types nothing.
+            when (val modeSection = SyncModeSection.from(type?.capabilities, source.syncMode)) {
+                is SyncModeSection.Toggle -> {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SectionCard(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = stringResource(R.string.source_detail_sync_mode),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            modeSection.modes.forEachIndexed { index, mode ->
+                                SegmentedButton(
+                                    selected = mode == modeSection.selected,
+                                    onClick = { viewModel.setSyncMode(source.id, mode) },
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = index,
+                                        count = modeSection.modes.size,
+                                    ),
+                                ) {
+                                    Text(text = stringResource(mode.labelRes()))
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = stringResource(modeSection.selected.explanationRes()),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                is SyncModeSection.Fixed -> {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SectionCard(modifier = Modifier.fillMaxWidth()) {
+                        LabeledValue(
+                            label = stringResource(R.string.source_detail_sync_mode),
+                            value = stringResource(modeSection.mode.labelRes()),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = stringResource(modeSection.mode.fixedInfoRes()),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                SyncModeSection.None -> Unit
+            }
             Spacer(modifier = Modifier.height(24.dp))
             Button(
                 onClick = { confirmRemove = true },
@@ -169,3 +231,21 @@ fun SourceDetailScreen(
 /** Epoch millis -> a medium localized date (screen-only formatting). */
 private fun formatDate(epochMs: Long): String =
     DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMs))
+
+/** Mode -> its short label: the segmented row's option / the detail value. */
+private fun SyncMode.labelRes(): Int = when (this) {
+    SyncMode.HISTORY -> R.string.source_sync_mode_history
+    SyncMode.CURRENT -> R.string.source_sync_mode_current
+}
+
+/** Mode -> the one-line explanation shown under the toggle. */
+private fun SyncMode.explanationRes(): Int = when (this) {
+    SyncMode.HISTORY -> R.string.source_sync_mode_history_hint
+    SyncMode.CURRENT -> R.string.source_sync_mode_current_hint
+}
+
+/** Mode -> the info line of a source that cannot switch modes. */
+private fun SyncMode.fixedInfoRes(): Int = when (this) {
+    SyncMode.HISTORY -> R.string.source_sync_mode_history_only
+    SyncMode.CURRENT -> R.string.source_sync_mode_current_only
+}

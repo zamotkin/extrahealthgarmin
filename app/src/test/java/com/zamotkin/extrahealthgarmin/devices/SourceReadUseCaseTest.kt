@@ -9,6 +9,7 @@ import com.zamotkin.extrahealthgarmin.devices.api.SourceReadResult
 import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSource
+import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSourceStore
 import com.zamotkin.extrahealthgarmin.omron.data.BloodPressureDao
 import com.zamotkin.extrahealthgarmin.omron.data.BloodPressureRecordEntity
 import com.zamotkin.extrahealthgarmin.omron.data.OmronBpRepository
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -34,7 +36,12 @@ import org.junit.Test
  * Epic R4 pins: only the picked monitor user's readings may enter the
  * dataset (ingestion filter), a source without its slot surfaces the
  * configuration problem instead of throwing, and a failed pass stores
- * nothing and advances no state.
+ * nothing and advances no state. Epic R5 (task xlg.5) pins: the anchor
+ * advances ONLY on a successful pass (never regresses, never moves on an
+ * empty one), and a failed Current pass flags the source so the next read
+ * runs one full-ring History plan - the Omron counter-reset edge, where a
+ * failure after the mid-session reset discards readings the device
+ * already counted as read, must cost a slow re-read, never data.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SourceReadUseCaseTest {
@@ -150,6 +157,27 @@ class SourceReadUseCaseTest {
             error("not exercised by SourceReadUseCaseTest")
     }
 
+    /**
+     * Hand store fake (the SourcesViewModelTest shape): the rows the use
+     * case reloads at pass start, every saved list, and a save-failure
+     * switch. Inherits the interface's default update - the production
+     * atomicity lives in FileConnectedSourceStore and is covered by
+     * ConnectedSourceStoreTest.
+     */
+    private class FakeStore(var sources: List<ConnectedSource>) : ConnectedSourceStore {
+        val saved = mutableListOf<List<ConnectedSource>>()
+        var failSave = false
+
+        override fun load(): List<ConnectedSource> = sources
+
+        override fun save(sources: List<ConnectedSource>): Boolean {
+            if (failSave) return false
+            saved += sources
+            this.sources = sources
+            return true
+        }
+    }
+
     // ------------------------------------------------------------------ //
     //  Fixtures                                                          //
     // ------------------------------------------------------------------ //
@@ -190,10 +218,12 @@ class SourceReadUseCaseTest {
                 else -> null
             }
         },
+        store: ConnectedSourceStore = FakeStore(emptyList()),
     ): SourceReadUseCase = SourceReadUseCase(
         registry = registry,
         sourceFor = sourceFor,
         repository = repository,
+        store = store,
     )
 
     private fun aSlotsSource(userSlot: Int?) = ConnectedSource(
@@ -466,5 +496,220 @@ class SourceReadUseCaseTest {
         assertEquals(4, events.size)
         first.join()
         second.join()
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Sync modes and read anchors (epic R5, task xlg.5)                //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `a successful current read advances the anchor to the newest ingested reading`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        slotsAdapter.result = SourceReadResult.Success(
+            listOf(reading(1_000, userSlot = 1), reading(5_000, userSlot = 1))
+        )
+
+        val outcome = newUseCase(store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Success)
+        val row = store.sources.single()
+        assertEquals(5_000L, row.lastReadAnchor)
+        assertFalse(row.fullReadFallbackPending)
+    }
+
+    @Test
+    fun `a current read that returns nothing leaves the anchor untouched`() = runTest {
+        val source = aSlotsSource(userSlot = 1)
+            .copy(syncMode = SyncMode.CURRENT, lastReadAnchor = 5_000L)
+        val store = FakeStore(listOf(source))
+        slotsAdapter.result = SourceReadResult.Success(emptyList())
+
+        val outcome = newUseCase(store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Success)
+        assertEquals(5_000L, store.sources.single().lastReadAnchor)
+    }
+
+    @Test
+    fun `only the new reading of the next current read is stored and the anchor follows it`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        val useCase = newUseCase(store = store)
+        slotsAdapter.result = SourceReadResult.Success(listOf(reading(5_000, userSlot = 1)))
+        useCase.read(source)
+        // The device serves only the measurement newer than the anchor.
+        slotsAdapter.result = SourceReadResult.Success(listOf(reading(9_000, userSlot = 1)))
+
+        val outcome = useCase.read(source)
+
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0), outcome.stored)
+        assertEquals(9_000L, store.sources.single().lastReadAnchor)
+        assertEquals(SyncMode.CURRENT, slotsAdapter.requests.last().syncMode)
+    }
+
+    @Test
+    fun `a failed current read keeps the anchor and flags the full-ring fallback`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        slotsAdapter.result = SourceReadResult.Disconnected("session end")
+
+        val outcome = newUseCase(store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Disconnected)
+        val row = store.sources.single()
+        assertEquals(null, row.lastReadAnchor)
+        assertTrue(row.fullReadFallbackPending)
+    }
+
+    @Test
+    fun `the read after a failed current pass runs the full-ring history plan`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        val useCase = newUseCase(store = store)
+        slotsAdapter.result = SourceReadResult.Failed("link dropped after the counter reset")
+        useCase.read(source)
+        // The recovery pass re-reads the whole device memory: everything
+        // comes back and is stored (nothing was persisted by the failed
+        // pass, so no duplicates).
+        slotsAdapter.result = SourceReadResult.Success(
+            listOf(reading(1_000, userSlot = 1), reading(5_000, userSlot = 1))
+        )
+
+        val outcome = useCase.read(source)
+
+        assertEquals(
+            SourceReadRequest(syncMode = SyncMode.HISTORY, userSlot = 1),
+            slotsAdapter.requests.last()
+        )
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 2, duplicatesCount = 0), outcome.stored)
+        val row = store.sources.single()
+        assertEquals(5_000L, row.lastReadAnchor)
+        assertFalse(row.fullReadFallbackPending)
+    }
+
+    @Test
+    fun `the fallback plan repeats until one full-ring pass succeeds`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        val useCase = newUseCase(store = store)
+        slotsAdapter.result = SourceReadResult.Failed("first attempt")
+        useCase.read(source)
+        slotsAdapter.result = SourceReadResult.Timeout("second attempt")
+        useCase.read(source)
+
+        // A failed full-ring attempt leaves the device counters untouched,
+        // so the flag stays until a full-ring pass actually succeeds.
+        assertTrue(store.sources.single().fullReadFallbackPending)
+        assertEquals(SyncMode.HISTORY, slotsAdapter.requests.last().syncMode)
+
+        // The third pass is the full-ring plan that finally succeeds - it
+        // clears the flag; the mode itself never changed in the store.
+        slotsAdapter.result = SourceReadResult.Success(emptyList())
+        useCase.read(source)
+
+        assertFalse(store.sources.single().fullReadFallbackPending)
+        assertEquals(SyncMode.HISTORY, slotsAdapter.requests.last().syncMode)
+
+        // With the flag cleared, the pass after it is Current again.
+        useCase.read(source)
+
+        assertEquals(SyncMode.CURRENT, slotsAdapter.requests.last().syncMode)
+    }
+
+    @Test
+    fun `current-only sources never fall back after a failed read`() = runTest {
+        val source = aNoneSource()
+        val store = FakeStore(listOf(source))
+        noneAdapter.result = SourceReadResult.Failed("provider ipc died")
+
+        val outcome = newUseCase(store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Failed)
+        assertFalse(store.sources.single().fullReadFallbackPending)
+    }
+
+    @Test
+    fun `a current read that throws flags the fallback too`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        val throwing = object : BpSource {
+            override val sourceTypeId: String = SLOTS_TYPE
+            override val displayNameRes: Int get() = 0
+            override val capabilities: SourceCapabilities = SLOTS_CAPABILITIES
+            override suspend fun read(request: SourceReadRequest): SourceReadResult =
+                throw IllegalStateException("died mid-session")
+        }
+
+        val outcome = newUseCase(sourceFor = { throwing }, store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Failed)
+        assertTrue(store.sources.single().fullReadFallbackPending)
+    }
+
+    @Test
+    fun `a pass that never reached the source sets no fallback`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+
+        val outcome = newUseCase(sourceFor = { null }, store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Failed)
+        assertFalse(store.sources.single().fullReadFallbackPending)
+    }
+
+    @Test
+    fun `history re-reads return everything and stay idempotent`() = runTest {
+        val source = aSlotsSource(userSlot = 1)
+        val store = FakeStore(listOf(source))
+        slotsAdapter.result = SourceReadResult.Success(
+            listOf(reading(1_000, userSlot = 1), reading(2_000, userSlot = 1))
+        )
+        val useCase = newUseCase(store = store)
+
+        val first = useCase.read(source)
+        val second = useCase.read(source)
+
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 2, duplicatesCount = 0), first.stored)
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 2), second.stored)
+        assertEquals(2, dao.rows.size) // the unique index absorbs the re-read
+        assertEquals(2_000L, store.sources.single().lastReadAnchor)
+    }
+
+    @Test
+    fun `the anchor never regresses on older readings`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(lastReadAnchor = 5_000L)
+        val store = FakeStore(listOf(source))
+        // A History pass re-delivers an old row (a duplicate in Room).
+        slotsAdapter.result = SourceReadResult.Success(listOf(reading(1_000, userSlot = 1)))
+
+        newUseCase(store = store).read(source)
+
+        assertEquals(5_000L, store.sources.single().lastReadAnchor)
+    }
+
+    @Test
+    fun `the pass follows the stored row not a stale caller snapshot`() = runTest {
+        val stored = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(stored))
+        val staleSnapshot = stored.copy(syncMode = SyncMode.HISTORY)
+        slotsAdapter.result = SourceReadResult.Success(emptyList())
+
+        newUseCase(store = store).read(staleSnapshot)
+
+        assertEquals(SyncMode.CURRENT, slotsAdapter.requests.single().syncMode)
+    }
+
+    @Test
+    fun `a store write failure during anchor bookkeeping does not fail the read`() = runTest {
+        val source = aSlotsSource(userSlot = 1).copy(syncMode = SyncMode.CURRENT)
+        val store = FakeStore(listOf(source))
+        store.failSave = true
+        slotsAdapter.result = SourceReadResult.Success(listOf(reading(1_000, userSlot = 1)))
+
+        val outcome = newUseCase(store = store).read(source)
+
+        assertTrue(outcome.result is SourceReadResult.Success)
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0), outcome.stored)
     }
 }

@@ -132,4 +132,79 @@ class ConnectedSourceStoreTest {
 
         assertEquals(SyncMode.HISTORY, newStore().load().single().syncMode)
     }
+
+    // ------------------------------------------------------------------ //
+    //  Sync-mode state (task tefal2garmin-app-redesign-v3-xlg.5)         //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `roundtrip persists the full-read fallback flag`() {
+        val pending = omronSource().copy(fullReadFallbackPending = true)
+
+        newStore().save(listOf(pending))
+
+        assertEquals(listOf(pending), newStore().load())
+    }
+
+    @Test
+    fun `a row saved before the fallback flag existed loads it as false`() {
+        val file = File(tmp.root, "bp-sources.json")
+        file.writeText(
+            """{"sources":[{"id":"u1","sourceTypeId":"omron-ble","name":"M7",""" +
+                """"syncMode":"CURRENT","lastReadAnchor":100,"createdAt":123}]}"""
+        )
+
+        val loaded = newStore().load().single()
+        assertFalse(loaded.fullReadFallbackPending)
+        assertEquals(SyncMode.CURRENT, loaded.syncMode)
+        assertEquals(100L, loaded.lastReadAnchor)
+    }
+
+    @Test
+    fun `update changes one row and leaves the rest untouched`() {
+        val store = newStore()
+        store.save(listOf(omronSource(), healthConnectSource()))
+
+        val updated = store.update("uuid-1") { it.copy(syncMode = SyncMode.HISTORY) }
+
+        assertTrue(updated)
+        assertEquals(
+            listOf(omronSource().copy(syncMode = SyncMode.HISTORY), healthConnectSource()),
+            store.load()
+        )
+    }
+
+    @Test
+    fun `update of an unknown id saves nothing`() {
+        val store = newStore()
+        store.save(listOf(omronSource()))
+
+        assertFalse(store.update("no-such-id") { it.copy(syncMode = SyncMode.HISTORY) })
+
+        assertEquals(listOf(omronSource()), store.load())
+    }
+
+    @Test
+    fun `an update that changes nothing returns true without writing`() {
+        val store = newStore()
+        store.save(listOf(omronSource()))
+        val before = File(tmp.root, "bp-sources.json").readText()
+
+        assertTrue(store.update("uuid-1") { it })
+
+        assertEquals(before, File(tmp.root, "bp-sources.json").readText())
+    }
+
+    @Test
+    fun `a failed update returns false and leaves the old file intact`() {
+        val store = newStore()
+        store.save(listOf(omronSource()))
+        // Same blocked-temp trick as the save test: the write cannot start.
+        val blockedTemp = File(tmp.root, "bp-sources.json.tmp")
+        assertTrue(blockedTemp.mkdirs())
+
+        assertFalse(store.update("uuid-1") { it.copy(syncMode = SyncMode.HISTORY) })
+
+        assertEquals(listOf(omronSource()), newStore().load())
+    }
 }

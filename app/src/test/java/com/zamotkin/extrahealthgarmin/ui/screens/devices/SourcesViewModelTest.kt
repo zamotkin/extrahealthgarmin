@@ -2,6 +2,7 @@ package com.zamotkin.extrahealthgarmin.ui.screens.devices
 
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.zamotkin.extrahealthgarmin.devices.SourceRegistry
+import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.healthconnect.HealthConnectBpSourceType
 import com.zamotkin.extrahealthgarmin.devices.omron.OmronBleSourceType
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSource
@@ -106,5 +107,61 @@ class SourcesViewModelTest {
         assertEquals(OmronBleSourceType, vm.typeOf("omron-ble"))
         assertEquals(HealthConnectBpSourceType, vm.typeOf("health-connect"))
         assertNull(vm.typeOf("no-such-type"))
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Sync-mode toggle (task tefal2garmin-app-redesign-v3-xlg.5)        //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `setSyncMode persists a current-history-current switch`() {
+        val vm = newViewModel()
+        store.sources = listOf(omronSource.copy(syncMode = SyncMode.CURRENT))
+
+        assertTrue(vm.setSyncMode("id-1", SyncMode.HISTORY))
+        assertTrue(vm.setSyncMode("id-1", SyncMode.CURRENT))
+
+        assertEquals(SyncMode.CURRENT, store.saved.last().single().syncMode)
+        assertEquals(SyncMode.CURRENT, vm.sources.value?.single()?.syncMode)
+    }
+
+    @Test
+    fun `setSyncMode rejects a mode the source type does not support`() {
+        val vm = newViewModel()
+        // Health Connect is Current-only; its History is not selectable.
+        store.sources = listOf(hcSource.copy(syncMode = SyncMode.CURRENT))
+
+        assertFalse(vm.setSyncMode("id-2", SyncMode.HISTORY))
+
+        assertTrue(store.saved.isEmpty())
+    }
+
+    @Test
+    fun `setSyncMode of an unknown id saves nothing`() {
+        val vm = newViewModel()
+
+        assertFalse(vm.setSyncMode("no-such-id", SyncMode.CURRENT))
+
+        assertTrue(store.saved.isEmpty())
+    }
+
+    @Test
+    fun `setSyncMode to the stored mode is a no-op`() {
+        val vm = newViewModel()
+
+        assertTrue(vm.setSyncMode("id-1", SyncMode.HISTORY))
+
+        assertTrue(store.saved.isEmpty())
+    }
+
+    @Test
+    fun `setSyncMode reports a failed write and keeps the list`() {
+        store.failSave = true
+        val vm = newViewModel()
+
+        assertFalse(vm.setSyncMode("id-1", SyncMode.CURRENT))
+
+        assertTrue(store.saved.isEmpty())
+        assertEquals(listOf(omronSource, hcSource), vm.sources.value)
     }
 }

@@ -187,6 +187,17 @@
     <string name="source_remove_confirm_action">Remove</string>
     <string name="source_remove_cancel">Cancel</string>
     <string name="source_not_found">This source is no longer connected.</string>
+    <!-- Sync modes in the source detail (task tefal2garmin-app-redesign-v3-xlg.5):
+         the History/Current toggle renders only for sources supporting both
+         modes (Omron); single-mode sources state their one supported mode
+         instead - wording from capabilities, no vendor names. -->
+    <string name="source_detail_sync_mode">Sync mode</string>
+    <string name="source_sync_mode_history">History</string>
+    <string name="source_sync_mode_current">Current</string>
+    <string name="source_sync_mode_history_hint">Reads everything the device holds; already saved readings are skipped.</string>
+    <string name="source_sync_mode_current_hint">Reads only measurements taken since the last successful read.</string>
+    <string name="source_sync_mode_history_only">This source always reads its full history.</string>
+    <string name="source_sync_mode_current_only">This source always reads only new measurements.</string>
     <string name="settings_connections_title">Connections</string>
     <string name="settings_connections_sources">Blood-pressure sources</string>
     <string name="settings_connections_sources_value">Monitors and apps</string>

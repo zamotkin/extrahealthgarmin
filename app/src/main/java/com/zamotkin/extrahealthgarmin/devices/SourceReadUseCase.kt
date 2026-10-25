@@ -1,16 +1,20 @@
 package com.zamotkin.extrahealthgarmin.devices
 
 import android.content.Context
+import android.util.Log
 import com.zamotkin.extrahealthgarmin.devices.api.BleBpSourceType
 import com.zamotkin.extrahealthgarmin.devices.api.BpReading
 import com.zamotkin.extrahealthgarmin.devices.api.BpSource
+import com.zamotkin.extrahealthgarmin.devices.api.BpSourceType
 import com.zamotkin.extrahealthgarmin.devices.api.DiscoveredBleDevice
 import com.zamotkin.extrahealthgarmin.devices.api.SingletonBpSourceType
 import com.zamotkin.extrahealthgarmin.devices.api.SourceCapabilities
 import com.zamotkin.extrahealthgarmin.devices.api.SourceReadRequest
 import com.zamotkin.extrahealthgarmin.devices.api.SourceReadResult
+import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSource
+import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSourceStore
 import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import com.zamotkin.extrahealthgarmin.omron.data.OmronBpRepository
 import java.util.concurrent.ConcurrentHashMap
@@ -46,13 +50,29 @@ data class SourceReadOutcome(
  *  -> [OmronBpRepository.storeReadings] tags the survivors with the source
  *  id (insert-ignore makes re-reads idempotent).
  *
- * Deliberately slim and free of UI knowledge: task xlg.5 adds the
- * read-mode/anchor handling on top of [read], task xlg.6 wires the
+ * Sync modes and read anchors (task xlg.5, epic R5): the mode comes from
+ * [ConnectedSource.syncMode] — HISTORY reads the whole device memory
+ * (idempotent through the repository's insert-ignore index), CURRENT reads
+ * only the unread window since the last successful read. A successful pass
+ * advances the app-side [ConnectedSource.lastReadAnchor] to the newest
+ * ingested reading; a failed pass advances nothing. The self-healing
+ * fallback covers the Omron counter-reset edge — a Current pass that dies
+ * after the source may already have consumed its unread window (the
+ * monitor resets its unread counters mid-session) flags the source, and
+ * the NEXT pass runs one full-ring History plan to recover; the flag
+ * clears only when such a pass succeeds, so no failure sequence can lose
+ * readings a History re-read could still deliver. The source's own
+ * anchors (Omron's device counters, Health Connect's changes token)
+ * remain the real Current anchor; lastReadAnchor is app-side bookkeeping
+ * and the model for sources without device counters.
+ *
+ * Deliberately slim and free of UI knowledge: task xlg.6 wires the
  * read-now button and the autosync to it.
  *
  * Concurrency: reads of one source serialize on a per-source mutex — a
  * physical monitor serves one pass at a time — while different sources read
- * in parallel.
+ * in parallel. Sync-state writes go through [ConnectedSourceStore.update],
+ * which the file store makes atomic against the mode toggle in the UI.
  *
  * Never throws: [BpSource.read] guarantees a terminal result, and the
  * use case's own I/O (source construction, the store call) gets the same
@@ -63,6 +83,7 @@ class SourceReadUseCase(
     private val registry: SourceRegistry,
     private val sourceFor: (ConnectedSource) -> BpSource?,
     private val repository: OmronBpRepository,
+    private val store: ConnectedSourceStore,
 ) {
 
     /**
@@ -78,7 +99,14 @@ class SourceReadUseCase(
         return lock.withLock { readLocked(source) }
     }
 
-    private suspend fun readLocked(source: ConnectedSource): SourceReadOutcome {
+    private suspend fun readLocked(snapshot: ConnectedSource): SourceReadOutcome {
+        // Task xlg.5: the pass runs on the STORED row, not the caller's
+        // snapshot - a stale snapshot (the previous pass's anchor, a mode
+        // toggled mid-flight) must not drive the plan or regress what a
+        // previous pass persisted. A snapshot without a store row (removed
+        // elsewhere mid-flight) still reads; the write-back below simply
+        // finds no row to update.
+        val source = store.load().firstOrNull { it.id == snapshot.id } ?: snapshot
         // The type's capabilities drive the ingestion filter; an unknown
         // type id (a source type unregistered since the row was saved)
         // fails the pass instead of throwing.
@@ -97,21 +125,34 @@ class SourceReadUseCase(
                 "Source '${source.name}' of type '${source.sourceTypeId}' is not available"
             )
         )
+        // The pass plan (task xlg.5): a pending full-read fallback overrides
+        // the configured Current mode with one full-ring History plan.
+        val fallbackPending = source.fullReadFallbackPending &&
+            source.syncMode == SyncMode.CURRENT &&
+            SyncMode.HISTORY in type.capabilities.supportedSyncModes
+        val planMode = if (fallbackPending) SyncMode.HISTORY else source.syncMode
         // read() is terminal by contract; the guard keeps a broken
         // implementation from crashing the caller (same hygiene as the
         // xlg.13 remediation).
         val result = try {
             bpSource.read(
-                SourceReadRequest(syncMode = source.syncMode, userSlot = source.userSlot)
+                SourceReadRequest(syncMode = planMode, userSlot = source.userSlot)
             )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            // The pass DID reach the source: a Current plan that died here
+            // may have consumed the unread window mid-session, so flag the
+            // recovery plan before folding onto Failed.
+            if (planMode == SyncMode.CURRENT) requestFullReadFallback(source, type)
             return sourceFailed(source, "read failed unexpectedly", e)
         }
         if (result !is SourceReadResult.Success) {
             // Failed passes stay retryable: nothing stored, no state
-            // advanced (the read anchor of task xlg.5 must not move).
+            // advanced (the read anchor must not move) - except the
+            // recovery flag a failed Current plan sets, which is what makes
+            // the NEXT pass re-read the window the source may have consumed.
+            if (planMode == SyncMode.CURRENT) requestFullReadFallback(source, type)
             return SourceReadOutcome(result)
         }
         val kept = filterByUserSlot(result.readings, type.capabilities, source.userSlot)
@@ -120,7 +161,60 @@ class SourceReadUseCase(
         } else {
             repository.storeReadings(kept.map { it.toDomainReading() }, source.id)
         }
+        advanceReadState(source, kept)
         return SourceReadOutcome(result = result, stored = stored)
+    }
+
+    /**
+     * Flags [source] for one full-ring fallback read (the task xlg.5 edge
+     * fix): a Current pass failed after the source may already have
+     * consumed its unread window (the Omron monitor resets its unread
+     * counters mid-session, before the pass can prove the readings were
+     * delivered), so the NEXT pass re-reads the whole device memory - the
+     * repository's insert-ignore index absorbs everything already stored -
+     * instead of trusting the window. Any non-Success outcome counts:
+     * over-flagging costs one slow read, under-flagging can cost readings.
+     * Skipped for sources that cannot fall back (no History support) -
+     * their own anchor, like Health Connect's changes token, advances only
+     * on success, so a retry re-reads exactly what the failed pass missed.
+     */
+    private suspend fun requestFullReadFallback(
+        source: ConnectedSource,
+        type: BpSourceType,
+    ) {
+        if (SyncMode.HISTORY !in type.capabilities.supportedSyncModes) return
+        val saved = store.update(source.id) { row ->
+            row.copy(fullReadFallbackPending = true)
+        }
+        if (!saved) {
+            Log.w(TAG, "Could not flag the full-read fallback of source '${source.id}'")
+        }
+    }
+
+    /**
+     * Persists the sync-state outcome of a successful pass (task xlg.5):
+     * [ConnectedSource.lastReadAnchor] advances to the newest INGESTED
+     * reading - never regressing, never moving on a pass that ingested
+     * nothing - and a pending full-read fallback clears, because a pass
+     * under a pending flag always ran the full-ring History plan: the
+     * window the failed Current pass may have consumed has been re-read.
+     * Bookkeeping only - the readings themselves are already in Room, and
+     * the source's own anchors stay untouched by this write.
+     */
+    private suspend fun advanceReadState(source: ConnectedSource, kept: List<BpReading>) {
+        val newest = kept.maxOfOrNull { it.timestampEpochSec }
+        val saved = store.update(source.id) { row ->
+            row.copy(
+                lastReadAnchor = when (newest) {
+                    null -> row.lastReadAnchor
+                    else -> maxOf(row.lastReadAnchor ?: Long.MIN_VALUE, newest)
+                },
+                fullReadFallbackPending = false
+            )
+        }
+        if (!saved) {
+            Log.w(TAG, "Could not persist the read anchor of source '${source.id}'")
+        }
     }
 
     private fun sourceFailed(source: ConnectedSource, step: String, e: Exception) =
@@ -131,19 +225,23 @@ class SourceReadUseCase(
         )
 
     companion object {
+        private const val TAG = "SourceReadUseCase"
 
         /**
          * Production wiring (manual, no DI framework): resolves the stored
          * source through the registry — BLE types rebuild their
          * [DiscoveredBleDevice] from the stored name and address (RSSI is
          * scan-time data, meaningless at read time), singleton types create
-         * their one instance. Task xlg.6 calls this from the read UI and
-         * the autosync wiring.
+         * their one instance. [store] is the app's shared
+         * [ConnectedSourceStore] (HealthSyncWiring.connectedSourceStore) -
+         * the same instance the mode toggle writes. Task xlg.6 calls this
+         * from the read UI and the autosync wiring.
          */
         fun create(
             context: Context,
             registry: SourceRegistry,
             repository: OmronBpRepository,
+            store: ConnectedSourceStore,
         ): SourceReadUseCase = SourceReadUseCase(
             registry = registry,
             sourceFor = { source ->
@@ -164,6 +262,7 @@ class SourceReadUseCase(
                 }
             },
             repository = repository,
+            store = store,
         )
     }
 }

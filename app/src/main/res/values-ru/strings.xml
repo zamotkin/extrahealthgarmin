@@ -187,6 +187,18 @@
     <string name="source_remove_confirm_action">Удалить</string>
     <string name="source_remove_cancel">Отмена</string>
     <string name="source_not_found">Этот источник больше не подключён.</string>
+    <!-- Режимы синхронизации в карточке источника (задача
+         tefal2garmin-app-redesign-v3-xlg.5): переключатель «История/Новые»
+         показывается только для источников с обоими режимами (Omron);
+         для источников с одним режимом — пояснение вместо переключателя:
+         формулировка из возможностей типа, без названий производителей. -->
+    <string name="source_detail_sync_mode">Режим синхронизации</string>
+    <string name="source_sync_mode_history">История</string>
+    <string name="source_sync_mode_current">Новые</string>
+    <string name="source_sync_mode_history_hint">Считывает всю память устройства; уже сохранённые измерения пропускаются.</string>
+    <string name="source_sync_mode_current_hint">Считывает только измерения, сделанные после последнего успешного чтения.</string>
+    <string name="source_sync_mode_history_only">Этот источник всегда считывает всю историю.</string>
+    <string name="source_sync_mode_current_only">Этот источник всегда считывает только новые измерения.</string>
     <string name="settings_connections_title">Подключения</string>
     <string name="settings_connections_sources">Источники давления</string>
     <string name="settings_connections_sources_value">Тонометры и приложения</string>
