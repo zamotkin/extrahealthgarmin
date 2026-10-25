@@ -45,7 +45,8 @@ class SourceRegistryTest {
             SourceCapabilities(
                 userAttribution = UserAttribution.SLOTS,
                 supportedSyncModes = setOf(SyncMode.HISTORY, SyncMode.CURRENT),
-                requiresPairingKey = true
+                requiresPairingKey = true,
+                pairingKeyBytes = 16
             ),
             type?.capabilities
         )

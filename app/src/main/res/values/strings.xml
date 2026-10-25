@@ -148,7 +148,7 @@
     <string name="add_source_scan_error">Scanning failed</string>
     <string name="add_source_pair_title">Connect %1$s</string>
     <string name="add_source_key_label">Pairing key</string>
-    <string name="add_source_key_hint">Enter exactly 16 characters. The app programs this key into the monitor on the first transfer.</string>
+    <string name="add_source_key_hint">Enter exactly 16 characters. The app remembers this key and uses it to unlock the monitor.</string>
     <string name="add_source_key_error">The pairing key must be exactly 16 characters.</string>
     <!-- One-time device user pick (task tefal2garmin-app-redesign-v3-xlg.4):
          rendered only for source types with user slots (Omron). -->

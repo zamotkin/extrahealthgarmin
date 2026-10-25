@@ -1,6 +1,7 @@
 package com.zamotkin.extrahealthgarmin.devices.ble
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
@@ -29,7 +30,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * dropped after [BleSourceScanner.ScanSession.stop]; every framework call
  * is guarded because the adapter can die or a permission can be revoked
  * mid-scan - the seam contract is "never throws".
+ *
+ * Caller must hold the BLUETOOTH_SCAN / ACCESS_FINE_LOCATION grant
+ * (checked here in [hasRuntimePermissions] before the scan) - hence the
+ * suppression, the same pattern OmronGattConnection uses.
  */
+@SuppressLint("MissingPermission")
 class BleServiceScanner(private val context: Context) : BleSourceScanner {
 
     override fun start(

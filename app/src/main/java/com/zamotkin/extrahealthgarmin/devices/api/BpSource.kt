@@ -30,6 +30,10 @@ enum class SyncMode { HISTORY, CURRENT }
  * @property supportedSyncModes the modes [BpSource.read] accepts
  * @property requiresPairingKey whether connecting needs an app-level
  *   pairing key (Omron's 16-byte key; standard 0x1810 uses system bonding)
+ * @property pairingKeyBytes the exact pairing-key length in bytes a
+ *   [requiresPairingKey] source accepts (the M7: 16); null for keyless
+ *   types - the add-source flow validates the typed key against this
+ *   capability, never against a vendor constant
  * @property userSlotCount how many device user slots a
  *   [UserAttribution.SLOTS] source picks from (the M7 carries two; slots
  *   are 1-based). Ignored for [UserAttribution.NONE] sources.
@@ -38,6 +42,7 @@ data class SourceCapabilities(
     val userAttribution: UserAttribution,
     val supportedSyncModes: Set<SyncMode>,
     val requiresPairingKey: Boolean,
+    val pairingKeyBytes: Int? = null,
     val userSlotCount: Int = 2
 ) {
 

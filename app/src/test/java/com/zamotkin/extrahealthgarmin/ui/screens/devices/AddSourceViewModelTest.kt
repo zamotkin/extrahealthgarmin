@@ -69,16 +69,19 @@ class AddSourceViewModelTest {
             SourceReadResult.Failed("not read in tests")
     }
 
-    /** BLE type shaped like Omron ([requiresKey]) or like the 0x1810 driver. */
+    /** BLE type shaped like Omron ([requiresKey]) or like the 0x1810 driver.
+     *  [keyBytes] lets a test pin a non-Omron key length (task xlg.14). */
     private class FakeBleType(
         override val typeId: String,
         private val requiresKey: Boolean,
+        private val keyBytes: Int = 16,
     ) : BleBpSourceType {
         override val displayNameRes: Int get() = R.string.bp_source_type_omron_ble
         override val capabilities: SourceCapabilities = SourceCapabilities(
             userAttribution = if (requiresKey) UserAttribution.SLOTS else UserAttribution.NONE,
             supportedSyncModes = setOf(SyncMode.HISTORY, SyncMode.CURRENT),
-            requiresPairingKey = requiresKey
+            requiresPairingKey = requiresKey,
+            pairingKeyBytes = if (requiresKey) keyBytes else null
         )
 
         override fun createFromDevice(context: Context, device: DiscoveredBleDevice): BpSource =
@@ -216,11 +219,13 @@ class AddSourceViewModelTest {
         val key = options[0]
         assertTrue(key.isBle)
         assertTrue(key.requiresPairingKey)
+        assertEquals(16, key.pairingKeyBytes) // the type's capability, not a constant
         assertTrue(key.supportsUserSlots)
         assertEquals(setOf(SyncMode.HISTORY, SyncMode.CURRENT), key.supportedSyncModes)
         val hc = options[2]
         assertFalse(hc.isBle)
         assertFalse(hc.requiresPairingKey)
+        assertNull(hc.pairingKeyBytes) // keyless type
         assertFalse(hc.supportsUserSlots)
         assertEquals(setOf(SyncMode.CURRENT), hc.supportedSyncModes)
     }
@@ -364,6 +369,22 @@ class AddSourceViewModelTest {
         vm.submitPairingKey("12345678901234567") // 17 bytes
         assertTrue((vm.uiState.value as AddSourceUiState.Pairing).keyError)
         assertTrue(store.saved.isEmpty())
+    }
+
+    @Test
+    fun `key length is validated against the type capability not a fixed 16`() {
+        // A future key-requiring type with a different key length (task xlg.14).
+        val eightByteType = FakeBleType("eight-byte-ble", requiresKey = true, keyBytes = 8)
+        val vm = newViewModel(types = listOf(eightByteType))
+        inPairingWithDevice(vm, "eight-byte-ble")
+        vm.selectUserSlot(1)
+        vm.submitPairingKey("1234567890123456") // Omron's 16 - wrong for this type
+        assertTrue((vm.uiState.value as AddSourceUiState.Pairing).keyError)
+        assertTrue(store.saved.isEmpty())
+        vm.clearKeyError()
+        vm.submitPairingKey("12345678") // matches the type's own capability
+        assertTrue(vm.uiState.value is AddSourceUiState.Done)
+        assertArrayEquals("12345678".toByteArray(), storedKeys.single().second)
     }
 
     @Test

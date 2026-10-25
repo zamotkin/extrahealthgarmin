@@ -23,7 +23,6 @@ import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSourceStore
 import com.zamotkin.extrahealthgarmin.health.HealthPermissions
 import com.zamotkin.extrahealthgarmin.health.HealthSyncWiring
 import com.zamotkin.extrahealthgarmin.omron.ble.missingPermissions
-import com.zamotkin.extrahealthgarmin.omron.protocol.OmronProtocol
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -40,12 +39,16 @@ import java.util.UUID
  *   (the one-time pick of task xlg.4 renders for such types)
  * @property userSlots the pickable device user slots, 1-based; empty when
  *   [supportsUserSlots] is false (nothing to configure)
+ * @property pairingKeyBytes the exact pairing-key length the type accepts,
+ *   straight from its capabilities; null for keyless types (task xlg.14:
+ *   the length rides with the capability, no vendor constant here)
  */
 data class SourceTypeOption(
     val typeId: String,
     @StringRes val nameRes: Int,
     val isBle: Boolean,
     val requiresPairingKey: Boolean,
+    val pairingKeyBytes: Int?,
     val supportsUserSlots: Boolean,
     val userSlots: List<Int>,
     val supportedSyncModes: Set<SyncMode>,
@@ -355,15 +358,16 @@ open class AddSourceViewModel(
 
     /**
      * Submits the typed pairing key: a SLOTS type without its user pick or a
-     * wrong-length key is rejected BEFORE any save; a valid one is stored
-     * through the seam and the source saved.
+     * key whose length differs from the type's
+     * [SourceTypeOption.pairingKeyBytes] capability is rejected BEFORE any
+     * save; a valid one is stored through the seam and the source saved.
      */
     fun submitPairingKey(key: String) {
         val state = _uiState.value as? AddSourceUiState.Pairing ?: return
         if (!state.option.requiresPairingKey) return
         if (missingUserSlot(state)) return
         val keyBytes = key.toByteArray(Charsets.UTF_8)
-        if (keyBytes.size != OmronProtocol.PAIRING_KEY_BYTES) {
+        if (keyBytes.size != state.option.pairingKeyBytes) {
             _uiState.value = state.copy(keyError = true)
             return
         }
@@ -468,6 +472,7 @@ open class AddSourceViewModel(
         nameRes = type.displayNameRes,
         isBle = type is BleBpSourceType,
         requiresPairingKey = type.capabilities.requiresPairingKey,
+        pairingKeyBytes = type.capabilities.pairingKeyBytes,
         supportsUserSlots = type.capabilities.userAttribution == UserAttribution.SLOTS,
         userSlots = type.capabilities.userSlots,
         supportedSyncModes = type.capabilities.supportedSyncModes,

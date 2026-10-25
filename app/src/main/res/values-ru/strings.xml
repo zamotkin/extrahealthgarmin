@@ -147,7 +147,7 @@
     <string name="add_source_scan_error">Не удалось выполнить поиск</string>
     <string name="add_source_pair_title">Подключение: %1$s</string>
     <string name="add_source_key_label">Ключ сопряжения</string>
-    <string name="add_source_key_hint">Введите ровно 16 символов. Приложение запишет этот ключ в тонометр при первой передаче.</string>
+    <string name="add_source_key_hint">Введите ровно 16 символов. Приложение запомнит этот ключ и использует его для разблокировки тонометра.</string>
     <string name="add_source_key_error">Ключ сопряжения должен содержать ровно 16 символов.</string>
     <!-- Однократный выбор пользователя тонометра (задача
          tefal2garmin-app-redesign-v3-xlg.4): показывается только для типов

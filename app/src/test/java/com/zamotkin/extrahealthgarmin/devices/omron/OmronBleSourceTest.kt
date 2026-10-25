@@ -8,6 +8,7 @@ import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import com.zamotkin.extrahealthgarmin.omron.ble.OmronBleResult
+import com.zamotkin.extrahealthgarmin.omron.protocol.OmronProtocol
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -58,6 +59,10 @@ class OmronBleSourceTest {
         assertEquals(UserAttribution.SLOTS, capabilities.userAttribution)
         assertEquals(setOf(SyncMode.HISTORY, SyncMode.CURRENT), capabilities.supportedSyncModes)
         assertTrue(capabilities.requiresPairingKey)
+        // The M7 key length travels with the capability (task xlg.14), so
+        // the add-source flow validates against it without importing the
+        // Omron protocol constant.
+        assertEquals(OmronProtocol.PAIRING_KEY_BYTES, capabilities.pairingKeyBytes)
     }
 
     // ------------------------------------------------------------------ //

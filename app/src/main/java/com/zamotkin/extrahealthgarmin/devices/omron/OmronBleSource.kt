@@ -17,6 +17,7 @@ import com.zamotkin.extrahealthgarmin.omron.ble.KeystoreAesPairingKeyCrypto
 import com.zamotkin.extrahealthgarmin.omron.ble.OmronBleClient
 import com.zamotkin.extrahealthgarmin.omron.ble.OmronBleResult
 import com.zamotkin.extrahealthgarmin.omron.ble.OmronKeyStore
+import com.zamotkin.extrahealthgarmin.omron.protocol.OmronProtocol
 import java.io.File
 import kotlinx.coroutines.CancellationException
 
@@ -91,6 +92,9 @@ class OmronBleSource(
             userAttribution = UserAttribution.SLOTS,
             supportedSyncModes = setOf(SyncMode.HISTORY, SyncMode.CURRENT),
             requiresPairingKey = true,
+            // The vendor constant travels with the capability, so the
+            // add-source flow never needs the Omron protocol import.
+            pairingKeyBytes = OmronProtocol.PAIRING_KEY_BYTES,
             userSlotCount = 2
         )
     }
