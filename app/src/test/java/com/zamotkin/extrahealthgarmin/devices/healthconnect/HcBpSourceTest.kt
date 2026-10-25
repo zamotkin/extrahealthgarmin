@@ -7,15 +7,21 @@ import com.zamotkin.extrahealthgarmin.devices.api.SourceReadResult
 import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.health.BloodPressureResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 /**
  * [HcBpSource] tests (task tefal2garmin-app-redesign-v3-xlg.2): the
  * request/result mapping over a faked sync pass - the real
  * BloodPressureSync pipeline is not touched here. Plain JUnit, no Android.
+ *
+ * Task tefal2garmin-app-redesign-v3-xlg.13 added the never-throw contract
+ * tests: a throwing pass folds onto Failed, cancellation propagates.
  */
 class HcBpSourceTest {
 
@@ -95,5 +101,46 @@ class HcBpSourceTest {
 
         assertEquals(1, passes)
         assertTrue(outcome is SourceReadResult.Success)
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Never-throw contract                                              //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * The production pass (facade.syncBloodPressure) can throw (Health
+     * Connect provider IPC, the state-file save): the failure must fold
+     * onto Failed and never escape read().
+     */
+    @Test
+    fun `a throwing sync pass fails the read without escaping`() = runTest {
+        val throwingSource = HcBpSource(
+            syncPass = { throw IOException("state store save failed") }
+        )
+
+        val outcome = throwingSource.read(SourceReadRequest(SyncMode.CURRENT))
+
+        assertTrue(outcome is SourceReadResult.Failed)
+        assertTrue(
+            (outcome as SourceReadResult.Failed).reason.contains("state store save failed")
+        )
+    }
+
+    /**
+     * Cancellation from the pass must PROPAGATE — swallowing it would turn
+     * a cancelled coroutine into a phantom Failed pass.
+     */
+    @Test
+    fun `cancellation from the sync pass propagates`() = runTest {
+        val cancellingSource = HcBpSource(
+            syncPass = { throw CancellationException("pass cancelled") }
+        )
+
+        try {
+            cancellingSource.read(SourceReadRequest(SyncMode.CURRENT))
+            fail("CancellationException must propagate out of read")
+        } catch (e: CancellationException) {
+            // expected — rethrown before the Failed fallback
+        }
     }
 }

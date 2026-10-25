@@ -12,6 +12,7 @@ import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.health.BloodPressureResult
 import com.zamotkin.extrahealthgarmin.health.HealthSyncWiring
+import kotlinx.coroutines.CancellationException
 
 /**
  * [BpSource] adapter over the existing Health Connect blood-pressure
@@ -43,7 +44,20 @@ class HcBpSource(
         }
         // A userSlot, if a caller sends one, is meaningless here (NONE
         // attribution) and safely ignored.
-        val result = syncPass()
+        // The pass is not exception-free (Health Connect provider IPC, the
+        // state-file save) and read() is terminal, so fold its failures
+        // onto Failed; cancellation still propagates — every other caller
+        // of this pipeline (MainViewModel, SyncWorker) wraps it the same way.
+        val result = try {
+            syncPass()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return SourceReadResult.Failed(
+                "Health Connect blood pressure pass failed: " +
+                    "${e.message ?: e.javaClass.simpleName}"
+            )
+        }
         return if (!result.enabled) {
             // The connect step of this source type is the permission grant.
             SourceReadResult.ConnectionRequired(

@@ -8,8 +8,10 @@ import com.zamotkin.extrahealthgarmin.devices.api.SyncMode
 import com.zamotkin.extrahealthgarmin.devices.api.UserAttribution
 import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import com.zamotkin.extrahealthgarmin.omron.ble.OmronBleResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,6 +20,9 @@ import org.junit.Test
  * request/result mapping over faked seams - the real omron/ble stack is not
  * touched here (real BLE runs only in the final on-device verification
  * task). Plain JUnit, no Android.
+ *
+ * Task tefal2garmin-app-redesign-v3-xlg.13 added the never-throw contract
+ * tests: a throwing key seam folds onto Failed, cancellation propagates.
  */
 class OmronBleSourceTest {
 
@@ -155,5 +160,54 @@ class OmronBleSourceTest {
             SourceReadResult.Failed("boom"),
             source.read(SourceReadRequest(SyncMode.CURRENT, userSlot = 1))
         )
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Never-throw contract                                              //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * The production key provider (OmronKeyStore.getOrCreate) throws on a
+     * Keystore error and on its first-generation file save: the failure
+     * must fold onto Failed and never escape read().
+     */
+    @Test
+    fun `a throwing key provider fails the read without touching BLE`() = runTest {
+        val throwingSource = OmronBleSource(
+            keyProvider = { throw IllegalStateException("Keystore unavailable") },
+            bleRead = { key, userSlot, fullRead ->
+                calls += BleCall(key, userSlot, fullRead)
+                bleResult
+            }
+        )
+
+        val outcome = throwingSource.read(SourceReadRequest(SyncMode.CURRENT, userSlot = 1))
+
+        assertTrue(outcome is SourceReadResult.Failed)
+        assertEquals(emptyList<BleCall>(), calls)
+        assertTrue((outcome as SourceReadResult.Failed).reason.contains("Keystore unavailable"))
+    }
+
+    /**
+     * Cancellation from the key seam must PROPAGATE — swallowing it would
+     * turn a cancelled coroutine into a phantom Failed pass.
+     */
+    @Test
+    fun `cancellation from the key provider propagates`() = runTest {
+        val cancellingSource = OmronBleSource(
+            keyProvider = { throw CancellationException("pass cancelled") },
+            bleRead = { key, userSlot, fullRead ->
+                calls += BleCall(key, userSlot, fullRead)
+                bleResult
+            }
+        )
+
+        try {
+            cancellingSource.read(SourceReadRequest(SyncMode.CURRENT, userSlot = 1))
+            fail("CancellationException must propagate out of read")
+        } catch (e: CancellationException) {
+            // expected — rethrown before the Failed fallback
+        }
+        assertEquals(emptyList<BleCall>(), calls)
     }
 }

@@ -18,6 +18,7 @@ import com.zamotkin.extrahealthgarmin.omron.ble.OmronBleClient
 import com.zamotkin.extrahealthgarmin.omron.ble.OmronBleResult
 import com.zamotkin.extrahealthgarmin.omron.ble.OmronKeyStore
 import java.io.File
+import kotlinx.coroutines.CancellationException
 
 /**
  * [BpSource] adapter over the existing Omron M7 BLE stack (task
@@ -48,7 +49,20 @@ class OmronBleSource(
             SyncMode.HISTORY -> true
             SyncMode.CURRENT -> false
         }
-        return when (val result = bleRead(keyProvider(), userSlot, fullRead)) {
+        // The key store is not exception-free (a Keystore error, or the
+        // first-generation file save) and read() is terminal, so fold its
+        // failures onto Failed; cancellation still propagates — the same
+        // hygiene the pre-sources OmronViewModel.startPass guard had.
+        val key = try {
+            keyProvider()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return SourceReadResult.Failed(
+                "Omron pairing key unavailable: ${e.message ?: e.javaClass.simpleName}"
+            )
+        }
+        return when (val result = bleRead(key, userSlot, fullRead)) {
             is OmronBleResult.Success ->
                 SourceReadResult.Success(result.readings.map { it.toBpReading() })
             is OmronBleResult.BondingRequired ->
