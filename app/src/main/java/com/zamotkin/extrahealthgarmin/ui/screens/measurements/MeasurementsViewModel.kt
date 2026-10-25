@@ -519,7 +519,12 @@ class MeasurementsViewModelFactory(
         @Volatile
         private var database: BloodPressureDatabase? = null
 
-        private fun database(app: Application): BloodPressureDatabase =
+        /**
+         * The memoized database accessor, shared with the Settings wiring
+         * (task xlg.7): one SQLite connection must serve every caller, so
+         * every ViewModel factory reaches the database through here.
+         */
+        internal fun database(app: Application): BloodPressureDatabase =
             database ?: synchronized(this) {
                 database ?: Room.databaseBuilder(
                     app,

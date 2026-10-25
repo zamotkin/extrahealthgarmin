@@ -10,8 +10,8 @@
 
     <!-- Health Connect home screen (task 2b) -->
     <string name="hc_status_checking">Проверяем Health Connect…</string>
-    <string name="hc_status_unavailable">Health Connect отсутствует или устарел — нажмите, чтобы установить или обновить</string>
-    <string name="hc_status_needs_permission">Health Connect нужны разрешения — нажмите, чтобы выдать</string>
+    <string name="hc_status_unavailable">Health Connect отсутствует или устарел</string>
+    <string name="hc_status_needs_permission">Health Connect нужны разрешения</string>
     <string name="hc_status_ready">Health Connect подключен</string>
     <string name="hc_never_synced">Синхронизация еще не выполнялась</string>
     <string name="hc_last_sync">Последняя синхронизация: %1$s</string>
@@ -99,7 +99,6 @@
     <string name="nav_settings">Настройки</string>
     <string name="measurements_empty_title">Измерений пока нет</string>
     <string name="measurements_empty_text">Подключите источник артериального давления в настройках, чтобы увидеть измерения здесь.</string>
-    <string name="settings_interim_text">Источники артериального давления настраиваются здесь. Разделы Garmin, Health Connect и сведения о приложении появятся позже.</string>
     <!-- Blood-pressure source types (devices/, task tefal2garmin-app-redesign-v3-xlg.2).
          Brand names — identical in every locale, like app_name. -->
     <string name="bp_source_type_omron_ble">Omron M7 Intelli IT</string>
@@ -181,6 +180,41 @@
     <string name="settings_connections_title">Подключения</string>
     <string name="settings_connections_sources">Источники давления</string>
     <string name="settings_connections_sources_value">Тонометры и приложения</string>
+    <!-- Сгруппированные настройки (redesign v3, задача
+         tefal2garmin-app-redesign-v3-xlg.7, требование R7): все служебные
+         функции переехали с главной страницы в свои группы — Garmin Connect
+         (аккаунт), Health Connect (переключатель разрешений, управление
+         доступом, загрузка истории, заметки о необязательных разрешениях) и
+         «О приложении» (версия, исходный код, диагностика только для
+         чтения). Строки hc_status_* выше общие с главной страницей — одно
+         оформление состояния во всех точках входа. -->
+    <string name="settings_garmin_title">Garmin Connect</string>
+    <string name="garmin_not_connected">Garmin не подключен</string>
+    <string name="settings_garmin_last_upload">Последняя загрузка</string>
+    <string name="settings_garmin_sign_out">Выйти</string>
+    <string name="settings_hc_title">Health Connect</string>
+    <string name="settings_hc_sync_toggle">Синхронизация с Health Connect</string>
+    <string name="settings_hc_manual_grant_hint">Разрешите доступ в настройках приложения Health Connect.</string>
+    <string name="settings_hc_manage_access">Управление доступом</string>
+    <string name="settings_hc_install_update">Установить или обновить Health Connect</string>
+    <string name="settings_about_title">О приложении</string>
+    <string name="settings_about_version">Версия</string>
+    <string name="settings_about_source">Исходный код</string>
+    <string name="settings_diag_weighin_journal">Журнал взвешиваний</string>
+    <string name="settings_diag_bp_journal">Журнал давления</string>
+    <string name="settings_diag_last_weighin_sync">Последняя синхронизация взвешиваний</string>
+    <string name="settings_diag_last_read">Последнее чтение · %1$s</string>
+    <!-- Опасные действия с измерениями в группе «Подключения» (задача
+         xlg.7): семантика удалённого экрана настроек ui/omron — измерения
+         одного пользователя тонометра или все, каждое за диалогом
+         подтверждения; загруженные в Garmin измерения там не удаляются. -->
+    <string name="settings_delete_for_user">Удалить измерения — пользователь %1$d</string>
+    <string name="settings_delete_for_user_confirm">Это навсегда удалит сохранённые в приложении измерения пользователя тонометра %1$d. Уже загруженные в Garmin измерения там не удаляются.</string>
+    <string name="settings_delete_all">Удалить все измерения</string>
+    <string name="settings_delete_all_confirm">Это навсегда удалит все измерения, сохранённые в приложении. Уже загруженные в Garmin измерения там не удаляются.</string>
+    <string name="settings_delete_confirm_action">Удалить</string>
+    <string name="settings_delete_success">Измерения удалены</string>
+    <string name="settings_delete_failed">Не удалось удалить измерения</string>
     <!-- Standard BLE Blood Pressure Service driver (devices/ble1810, task
          tefal2garmin-app-redesign-v3-xlg.9). Display name referenced by
          Ble1810Source.DISPLAY_NAME_RES; the steps and errors are rendered by

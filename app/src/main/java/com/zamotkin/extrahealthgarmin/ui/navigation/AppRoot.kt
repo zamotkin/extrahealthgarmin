@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -37,11 +38,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.zamotkin.extrahealthgarmin.R
+import com.zamotkin.extrahealthgarmin.ui.MainUiState
 import com.zamotkin.extrahealthgarmin.ui.MainViewModel
 import com.zamotkin.extrahealthgarmin.ui.screens.devices.AddSourceFlowScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.devices.SourceDetailScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.devices.SourceListScreen
-import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeActions
 import com.zamotkin.extrahealthgarmin.ui.screens.home.HomeScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.measurements.MeasurementsScreen
 import com.zamotkin.extrahealthgarmin.ui.screens.measurements.MeasurementsViewModel
@@ -87,12 +88,16 @@ private val destinations = listOf(
  *
  * The privacy-policy dialog is app-level: the Health Connect
  * permission-usage rationale deep link (and only it) opens it here, over
- * whichever tab is active.
+ * whichever tab is active. So is the Garmin login dialog (task
+ * tefal2garmin-app-redesign-v3-xlg.7): it opens from the Settings Garmin
+ * group's sign-in entry or a LoginRequired pass, over whichever tab is
+ * active - [triggerGarminAuthSpike] is the debug-only live auth spike the
+ * relocated service entries keep reachable.
  */
 @Composable
 fun AppRoot(
     viewModel: MainViewModel,
-    homeActions: HomeActions,
+    triggerGarminAuthSpike: () -> Unit,
     privacyDialogVisible: Boolean,
     onPrivacyDialogDismiss: () -> Unit,
 ) {
@@ -120,18 +125,20 @@ fun AppRoot(
                 .padding(innerPadding)
         ) {
             composable(ROUTE_HOME) {
-                HomeScreen(
-                    viewModel = viewModel,
-                    actions = homeActions,
-                )
+                HomeScreen(viewModel = viewModel)
             }
             composable(ROUTE_MEASUREMENTS) {
                 MeasurementsScreen(viewModel = measurementsViewModel)
             }
             composable(ROUTE_SETTINGS) {
                 SettingsScreen(
+                    mainViewModel = viewModel,
                     onOpenSources = { navController.navigate(ROUTE_SOURCES) },
+                    onOpenSourceDetail = { sourceId ->
+                        navController.navigate("$ROUTE_SOURCE_DETAIL/$sourceId")
+                    },
                     onAddSource = { navController.navigate(ROUTE_ADD_SOURCE) },
+                    onTriggerAuthSpike = triggerGarminAuthSpike,
                 )
             }
             composable(ROUTE_SOURCES) {
@@ -160,6 +167,24 @@ fun AppRoot(
                 )
             }
         }
+    }
+    // The shared Garmin login dialog (app-level, task xlg.7): the Settings
+    // sign-in entry or a LoginRequired pass opens it over whichever tab is
+    // active; the visibility state machine is the old Home one unchanged.
+    val uiState by viewModel.uiState.observeAsState()
+    val s = uiState ?: MainUiState()
+    val loginDialog = remember { LoginDialogVisibility() }
+    LaunchedEffect(s) { loginDialog.onState(s) }
+    if (loginDialog.visible) {
+        GarminLoginDialog(
+            needsMfa = s.loginNeedsMfa,
+            error = s.loginError,
+            onSubmit = viewModel::loginToGarmin,
+            onDismiss = {
+                viewModel.onLoginCancelled()
+                loginDialog.onUserDismiss()
+            },
+        )
     }
     if (privacyDialogVisible) {
         PrivacyPolicyDialog(onDismiss = onPrivacyDialogDismiss)

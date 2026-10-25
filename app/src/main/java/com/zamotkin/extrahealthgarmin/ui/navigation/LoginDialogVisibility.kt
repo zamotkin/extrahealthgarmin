@@ -1,4 +1,4 @@
-package com.zamotkin.extrahealthgarmin.ui.screens.home
+package com.zamotkin.extrahealthgarmin.ui.navigation
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,8 +11,9 @@ import com.zamotkin.extrahealthgarmin.ui.MainUiState
  * MainActivity (its lastShowLoginDialog / lastGarminConnected pair).
  *
  * The dialog opens when the ViewModel asks ([MainUiState.showLoginDialog],
- * set by a LoginRequired sync/upload outcome, NeedsMfa or a Failed login)
- * or on a local user request ([onUserOpen] — the Connect Garmin button).
+ * set by a LoginRequired sync/upload outcome, NeedsMfa or a Failed login,
+ * or by the Settings Garmin group's sign-in entry) or on a local user
+ * request ([onUserOpen]).
  * It closes on the falling edge of showLoginDialog, on the rising edge of
  * garminConnected (a successful login) and on a user cancel
  * ([onUserDismiss]).

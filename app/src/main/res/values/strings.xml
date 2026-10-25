@@ -10,8 +10,8 @@
 
     <!-- Health Connect home screen (task 2b) -->
     <string name="hc_status_checking">Checking Health Connect\u2026</string>
-    <string name="hc_status_unavailable">Health Connect is missing or outdated \u2014 tap to install or update</string>
-    <string name="hc_status_needs_permission">Health Connect needs permissions \u2014 tap to grant</string>
+    <string name="hc_status_unavailable">Health Connect is missing or outdated</string>
+    <string name="hc_status_needs_permission">Health Connect needs permissions</string>
     <string name="hc_status_ready">Health Connect connected</string>
     <string name="hc_never_synced">Never synced</string>
     <string name="hc_last_sync">Last sync: %1$s</string>
@@ -100,7 +100,6 @@
     <string name="nav_settings">Settings</string>
     <string name="measurements_empty_title">No measurements yet</string>
     <string name="measurements_empty_text">Connect a blood pressure source in Settings to see readings here.</string>
-    <string name="settings_interim_text">Blood-pressure sources are managed here. Garmin, Health Connect and about sections arrive in a later update.</string>
     <!-- Blood-pressure source types (devices/, task tefal2garmin-app-redesign-v3-xlg.2).
          Brand names — identical in every locale, like app_name. -->
     <string name="bp_source_type_omron_ble">Omron M7 Intelli IT</string>
@@ -180,6 +179,40 @@
     <string name="settings_connections_title">Connections</string>
     <string name="settings_connections_sources">Blood-pressure sources</string>
     <string name="settings_connections_sources_value">Monitors and apps</string>
+    <!-- Grouped Settings (redesign v3, task tefal2garmin-app-redesign-v3-
+         xlg.7, epic R7): every service function relocated from Home into
+         its group - Garmin Connect (account), Health Connect (permission
+         toggle, manage access, backfill, optional-read notes) and About
+         (version, source link, read-only diagnostics). The hc_status_*
+         lines above are shared with Home - one presentation per state
+         across entry points. -->
+    <string name="settings_garmin_title">Garmin Connect</string>
+    <string name="garmin_not_connected">Garmin is not connected</string>
+    <string name="settings_garmin_last_upload">Last upload</string>
+    <string name="settings_garmin_sign_out">Sign out</string>
+    <string name="settings_hc_title">Health Connect</string>
+    <string name="settings_hc_sync_toggle">Sync with Health Connect</string>
+    <string name="settings_hc_manual_grant_hint">Allow access in the Health Connect app settings.</string>
+    <string name="settings_hc_manage_access">Manage access</string>
+    <string name="settings_hc_install_update">Install or update Health Connect</string>
+    <string name="settings_about_title">About</string>
+    <string name="settings_about_version">Version</string>
+    <string name="settings_about_source">Source code</string>
+    <string name="settings_diag_weighin_journal">Weigh-in journal</string>
+    <string name="settings_diag_bp_journal">Blood-pressure journal</string>
+    <string name="settings_diag_last_weighin_sync">Last weigh-in sync</string>
+    <string name="settings_diag_last_read">Last read · %1$s</string>
+    <!-- Destructive reading management in the Connections group (task xlg.7):
+         the deleted ui/omron SettingsScreen's semantics - one monitor
+         user's readings or all of them, each behind a confirmation
+         dialog; Garmin-uploaded readings are never removed there. -->
+    <string name="settings_delete_for_user">Delete readings — User %1$d</string>
+    <string name="settings_delete_for_user_confirm">This permanently deletes the readings of monitor user %1$d stored in the app. Measurements already uploaded to Garmin are not removed there.</string>
+    <string name="settings_delete_all">Delete all readings</string>
+    <string name="settings_delete_all_confirm">This permanently deletes every reading stored in the app. Measurements already uploaded to Garmin are not removed there.</string>
+    <string name="settings_delete_confirm_action">Delete</string>
+    <string name="settings_delete_success">Readings deleted</string>
+    <string name="settings_delete_failed">Could not delete the readings</string>
     <!-- Standard BLE Blood Pressure Service driver (devices/ble1810, task
          tefal2garmin-app-redesign-v3-xlg.9). Display name referenced by
          Ble1810Source.DISPLAY_NAME_RES; the steps and errors are rendered by

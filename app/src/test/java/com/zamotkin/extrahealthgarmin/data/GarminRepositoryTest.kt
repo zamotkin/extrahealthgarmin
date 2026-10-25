@@ -252,6 +252,40 @@ class GarminRepositoryTest {
     }
 
     @Test
+    fun `signOut_clears_only_the_tokens`() = runTest {
+        remote.loginResult = LoginResult.Success(TOKENS)
+        repository.login("dmitry@example.com", "s3cret")
+        journal.markSent(listOf("1761350400:79.65"))
+        assertTrue(repository.hasStoredToken())
+
+        repository.signOut()
+
+        assertNull("tokens must be gone", tokenStore.load())
+        assertFalse(repository.hasStoredToken())
+        assertEquals(
+            "local sync state (the dedup journal) must survive a sign-out",
+            1,
+            journal.sentCount()
+        )
+    }
+
+    @Test
+    fun `signOut_drops_a_pending_mfa_flow`() = runTest {
+        val mfaState = MfaClientState(mfaMethod = "EMAIL")
+        remote.loginResult = LoginResult.NeedsMfa(mfaState)
+        repository.login("dmitry@example.com", "s3cret")
+
+        repository.signOut()
+
+        // The next sign-in must start a fresh login, never resume the flow
+        // the sign-out abandoned.
+        remote.loginResult = LoginResult.Success(TOKENS)
+        val status = repository.login("dmitry@example.com", "s3cret")
+        assertTrue(status is LoginStatus.Success)
+        assertEquals(0, remote.resumeCalls)
+    }
+
+    @Test
     fun `login_needs_mfa_then_resume_with_code`() = runTest {
         val mfaState = MfaClientState(mfaMethod = "EMAIL")
         remote.loginResult = LoginResult.NeedsMfa(mfaState)

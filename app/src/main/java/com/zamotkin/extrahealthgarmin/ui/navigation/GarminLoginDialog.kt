@@ -1,4 +1,4 @@
-package com.zamotkin.extrahealthgarmin.ui.screens.home
+package com.zamotkin.extrahealthgarmin.ui.navigation
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row

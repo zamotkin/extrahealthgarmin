@@ -1,4 +1,4 @@
-package com.zamotkin.extrahealthgarmin.ui.screens.home
+package com.zamotkin.extrahealthgarmin.ui.navigation
 
 import com.zamotkin.extrahealthgarmin.ui.MainUiState
 import org.junit.Assert.assertFalse

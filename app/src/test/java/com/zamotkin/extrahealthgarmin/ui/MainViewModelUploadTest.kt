@@ -2,6 +2,7 @@ package com.zamotkin.extrahealthgarmin.ui
 
 import android.app.Application
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.zamotkin.extrahealthgarmin.R
 import com.zamotkin.extrahealthgarmin.data.GarminUploadOrchestrator
 import com.zamotkin.extrahealthgarmin.data.LoginStatus
 import com.zamotkin.extrahealthgarmin.data.UploadOutcome
@@ -59,10 +60,11 @@ class MainViewModelUploadTest {
     /** When set, uploadNewRecords throws instead of returning [uploadOutcome]. */
     private var uploadException: Exception? = null
 
-    // Orchestrator call log: (email, password, mfaCode) triples and the
-    // record batches handed to uploadNewRecords
+    // Orchestrator call log: (email, password, mfaCode) triples, the
+    // record batches handed to uploadNewRecords and the sign-out calls
     private val loginCalls = mutableListOf<Triple<String, String, String?>>()
     private val uploadCalls = mutableListOf<List<GarminWeighInRecord>>()
+    private val signOutCalls = mutableListOf<Int>()
 
     /** Two distinct in-range weigh-ins — the canonical pending payload. */
     private val twoRecords = listOf(
@@ -98,6 +100,10 @@ class MainViewModelUploadTest {
                     uploadOutcome
                 }
                 "hasStoredToken" -> storedToken
+                "signOut" -> {
+                    signOutCalls.add(1)
+                    null
+                }
                 else -> Mockito.RETURNS_DEFAULTS.answer(invocation)
             }
         }
@@ -424,6 +430,141 @@ class MainViewModelUploadTest {
         assertTrue(
             "stored token -> connected status instead of the button",
             connectedViewModel.uiState.value!!.garminConnected
+        )
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Account entries relocated to Settings (task xlg.7)                 //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun requestGarminLogin_opens_the_shared_login_dialog() {
+        // The Settings Garmin group's sign-in entry: only surfaces the
+        // dialog, never runs a login by itself.
+        viewModel.requestGarminLogin()
+
+        assertTrue(viewModel.uiState.value!!.showLoginDialog)
+        assertTrue("no login ran", loginCalls.isEmpty())
+    }
+
+    @Test
+    fun signOut_clears_the_account_state_and_delegates_to_the_orchestrator() {
+        loginStatus = LoginStatus.Success
+        viewModel.loginToGarmin("user@example.com", "s3cret")
+        pumpUntil { it.garminConnected }
+
+        viewModel.signOut()
+
+        assertEquals(1, signOutCalls.size)
+        assertFalse(
+            "sign-out flips the account state both tabs render",
+            viewModel.uiState.value!!.garminConnected
+        )
+    }
+
+    @Test
+    fun signOut_keeps_local_sync_state_intact() {
+        // Records that were waiting for a sign-in (LoginRequired) stay
+        // pending across a sign-out: only the tokens go, so the sign-in
+        // afterwards retries exactly the same payload.
+        uploadOutcome = UploadOutcome.LoginRequired
+        uploadAndAwait(GarminUploadStatus.LOGIN_REQUIRED)
+        assertEquals(1, uploadCalls.size)
+
+        viewModel.signOut()
+
+        loginStatus = LoginStatus.Success
+        uploadOutcome = UploadOutcome.Success(uploadedCount = 2)
+        viewModel.loginToGarmin("user@example.com", "s3cret")
+        pumpUntil { it.garminConnected && it.uploadStatus == GarminUploadStatus.SUCCESS }
+
+        assertEquals(
+            "the pending payload must be retried after the re-login",
+            listOf(twoRecords, twoRecords),
+            uploadCalls
+        )
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Home slimming contract (epic R7, task xlg.7)                       //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun home_ui_state_exposes_only_status_and_sync_fields() {
+        // The slimmed Home tab renders MainUiState - its fields are exactly
+        // the status/sync lines plus the app-level login dialog's state
+        // (rendered at the root, not a Home action). The allowlist fails the
+        // moment someone sneaks a service action onto the Home state instead
+        // of the Settings groups - the R7 regression this pins.
+        val allowed = setOf(
+            // Status: Garmin account, upload pass, HC availability/permissions
+            "garminConnected", "uploadStatus", "totalRecords", "uploadedCount", "uploadMessages",
+            "hcAvailable", "hcPermissionsGranted", "hcBloodPressureGranted",
+            "hcHydrationGranted", "hcLastSyncEpochMs", "hcPendingCount", "hcSyncError",
+            // Sync: the in-flight flag gating "Sync now"
+            "hcSyncRunning",
+            // The app-level login dialog (AppRoot renders it, Settings opens it)
+            "showLoginDialog", "loginNeedsMfa", "loginError",
+        )
+        val names = MainUiState::class.java.declaredFields
+            .filterNot { it.isSynthetic || it.name.startsWith("$") }
+            .map { it.name }
+            .toSet()
+        assertEquals(allowed, names)
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Shared upload summary line (Home status card + Settings Garmin)    //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun uploadSummary_maps_every_status_onto_the_shared_outcome_line() {
+        // Before the first pass: nothing to render.
+        assertNull(MainUiState().uploadSummary())
+
+        // In flight: the progress note, no args.
+        assertEquals(
+            UploadSummary(R.string.upload_in_progress),
+            MainUiState(uploadStatus = GarminUploadStatus.UPLOADING).uploadSummary()
+        )
+
+        // Terminal outcomes with and without arguments.
+        assertEquals(
+            UploadSummary(R.string.upload_success, listOf(2)),
+            MainUiState(
+                uploadStatus = GarminUploadStatus.SUCCESS, uploadedCount = 2
+            ).uploadSummary()
+        )
+        assertEquals(
+            UploadSummary(R.string.upload_not_needed),
+            MainUiState(uploadStatus = GarminUploadStatus.NOT_NEEDED).uploadSummary()
+        )
+        assertEquals(
+            UploadSummary(
+                R.string.upload_partial,
+                listOf(1, 2),
+                failureMessage = "row 2 rejected by Garmin"
+            ),
+            MainUiState(
+                uploadStatus = GarminUploadStatus.PARTIAL,
+                uploadedCount = 1,
+                totalRecords = 2,
+                uploadMessages = listOf("", "row 2 rejected by Garmin")
+            ).uploadSummary()
+        )
+        assertEquals(
+            UploadSummary(
+                R.string.upload_retryable,
+                failureMessage = "HTTP 429"
+            ),
+            MainUiState(
+                uploadStatus = GarminUploadStatus.RETRYABLE,
+                uploadMessages = listOf("HTTP 429")
+            ).uploadSummary()
+        )
+        assertEquals(
+            UploadSummary(R.string.login_required),
+            MainUiState(uploadStatus = GarminUploadStatus.LOGIN_REQUIRED).uploadSummary()
         )
     }
 }

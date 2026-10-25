@@ -59,6 +59,15 @@ interface GarminUploadOrchestrator {
     suspend fun uploadNewRecords(records: List<GarminWeighInRecord>): UploadOutcome
 
     fun hasStoredToken(): Boolean
+
+    /**
+     * Clears the stored Garmin tokens (user sign-out, task
+     * tefal2garmin-app-redesign-v3-xlg.7). Nothing else: the dedup journals
+     * and the sync state stay intact, so a later [login] resumes exactly
+     * where the sync left off — the same invariant as the automatic token
+     * clear on an auth failure.
+     */
+    fun signOut()
 }
 
 /**
@@ -201,6 +210,14 @@ class GarminRepository internal constructor(
     // ------------------------------------------------------------------ //
 
     override fun hasStoredToken(): Boolean = tokenStore.load() != null
+
+    override fun signOut() {
+        // Only the tokens go; the journals and the sync state are not this
+        // repository's to touch. A half-finished MFA flow is dropped too, so
+        // the next sign-in starts a fresh login instead of resuming a dead one.
+        pendingMfaClientState = null
+        tokenStore.clear()
+    }
 
     override suspend fun login(email: String, password: String, mfaCode: String?): LoginStatus =
         withContext(Dispatchers.IO) {
