@@ -48,6 +48,23 @@ class ReadPlanCalculator {
     }
 
     /**
+     * One read command covering the ENTIRE record ring of [userIdx] — every one
+     * of the [OmronProtocol.RECORDS_PER_USER] slots, unread or not (omblepy
+     * `_getReadCommands_AllRecords`, mirrored by task tefal2garmin-8rb for the
+     * full-history transfer after an app-side delete-all: the device counters
+     * are already reset, so the history is only reachable through the ring).
+     * The caller chunks it via readContinuous; the unread counters are NOT
+     * reset in this mode — future measurements stay counted.
+     */
+    fun planFullRing(userIdx: Int): ReadCommand {
+        require(userIdx in 0..1) { "userIdx must be 0 or 1, is $userIdx" }
+        return ReadCommand(
+            address = OmronProtocol.USER_RECORD_ADDRESSES[userIdx],
+            size = OmronProtocol.RECORDS_PER_USER * OmronProtocol.RECORD_BYTE_SIZE,
+        )
+    }
+
+    /**
      * Returns a copy of the unread-info section (16 bytes, spec §5) with both users'
      * unread counters — bytes [4:8] — set to LE 0x8000 each ("no new records" code).
      * All other bytes, including the last-written-slot fields, are preserved verbatim.

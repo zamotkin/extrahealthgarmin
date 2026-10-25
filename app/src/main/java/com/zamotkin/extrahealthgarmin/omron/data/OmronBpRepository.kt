@@ -99,6 +99,17 @@ class OmronBpRepository(
             true
         }.getOrElse { e -> failed(e) { false } }
 
+    /**
+     * Deletes every stored reading of one [userSlot] (the settings "delete
+     * profile readings" action, task tefal2garmin-7m2) — the other slot's
+     * rows are untouched. True when the delete ran; false on DAO failure.
+     */
+    suspend fun deleteForUser(userSlot: Int): Boolean =
+        runCatching {
+            dao.deleteForUser(userSlot)
+            true
+        }.getOrElse { e -> failed(e) { false } }
+
     /** Reports [e] via [onError] and answers with the [fallback] value. */
     private fun <T> failed(e: Throwable, fallback: () -> T): T {
         if (e is CancellationException) throw e

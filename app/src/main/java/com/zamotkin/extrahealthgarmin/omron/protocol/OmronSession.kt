@@ -35,6 +35,9 @@ interface OmronTransport {
  * unlock -> session start -> read unread-info section @0x0010 -> ring-buffer record reads
  * -> unread-counter reset -> write-back @0x0054 -> session end (dataless 8f00 accepted; only an explicit nonzero status fails)
  *
+ * The default pass reads only the unread window; `readFullRing = true` (see
+ * [readOut]) reads the entire ring and skips the unread-counter reset.
+ *
  * Time sync (spec §5.2) is deliberately NOT performed here — deferred to a later task.
  *
  * Pure JVM — no Android types.
@@ -48,7 +51,28 @@ object OmronSession {
         val skippedRecords: Int,
     )
 
-    suspend fun readOut(transport: OmronTransport, key: ByteArray, userSlot: Int): ReadOutResult {
+    /**
+     * Runs one EEPROM readout for [userSlot].
+     *
+     * Default (`readFullRing = false`): reads exactly the unread window
+     * ([ReadPlanCalculator.planForUser]) and resets the unread counters, so
+     * each measurement is transferred once.
+     *
+     * `readFullRing = true`: reads the ENTIRE ring of the user
+     * ([ReadPlanCalculator.planFullRing], omblepy `getRecords(useUnreadCounter
+     * = False)`) and SKIPS the unread-counter reset — future measurements stay
+     * counted and ride with the next normal pass. This is the recovery path
+     * after an app-side delete-all: the device counters are already reset, so
+     * the stored history is reachable only through the whole ring (task
+     * tefal2garmin-8rb). Everything else — unlock, session start, settings
+     * read, chunked reads, session end — is identical.
+     */
+    suspend fun readOut(
+        transport: OmronTransport,
+        key: ByteArray,
+        userSlot: Int,
+        readFullRing: Boolean = false,
+    ): ReadOutResult {
         require(userSlot == 1 || userSlot == 2) {
             "userSlot must be 1 or 2, is $userSlot — wrong slot would mix medical data between users"
         }
@@ -83,9 +107,13 @@ object OmronSession {
                 throw OmronSessionException("unexpected settings read response: type=${settings.type.toString(16)} bytes=${settings.data.size}")
             }
 
-            // 4. ring-buffer record reads (spec §5.1)
+            // 4. ring-buffer record reads (spec §5.1): the unread window, or the
+            // whole ring in full-history mode (the unread counters are ignored)
+            val readCommands =
+                if (readFullRing) listOf(calculator.planFullRing(userIdx))
+                else calculator.planForUser(settings.data, userIdx)
             val readings = mutableListOf<BloodPressureReading>()
-            for (command in calculator.planForUser(settings.data, userIdx)) {
+            for (command in readCommands) {
                 val bytes = readContinuous(transport, command.address, command.size)
                 for (offset in bytes.indices step OmronProtocol.RECORD_BYTE_SIZE) {
                     val record = bytes.copyOfRange(offset, offset + OmronProtocol.RECORD_BYTE_SIZE)
@@ -98,16 +126,20 @@ object OmronSession {
                 }
             }
 
-            // 5. unread-counter reset, written back @0x0054 (NOT 0x0010 — spec discrepancy #7)
-            val reset = calculator.resetUnreadCounters(settings.data)
-            val resetResponse = transport.writeCommand(
-                SessionFrameCodec.buildWriteCommand(
-                    OmronProtocol.SETTINGS_WRITE_ADDRESS + OmronProtocol.UNREAD_SECTION_OFFSET,
-                    reset,
-                ),
-            )
-            if (resetResponse.type != OmronProtocol.RESP_WRITE) {
-                throw OmronSessionException("unexpected unread-reset response: ${resetResponse.type.toString(16)}")
+            // 5. unread-counter reset, written back @0x0054 (NOT 0x0010 — spec
+            // discrepancy #7). SKIPPED in full-ring mode: the counters were not
+            // consumed, so future measurements must stay counted.
+            if (!readFullRing) {
+                val reset = calculator.resetUnreadCounters(settings.data)
+                val resetResponse = transport.writeCommand(
+                    SessionFrameCodec.buildWriteCommand(
+                        OmronProtocol.SETTINGS_WRITE_ADDRESS + OmronProtocol.UNREAD_SECTION_OFFSET,
+                        reset,
+                    ),
+                )
+                if (resetResponse.type != OmronProtocol.RESP_WRITE) {
+                    throw OmronSessionException("unexpected unread-reset response: ${resetResponse.type.toString(16)}")
+                }
             }
 
             // 6. session end + device status (spec §4.1). The real HEM-7361T-ALRU

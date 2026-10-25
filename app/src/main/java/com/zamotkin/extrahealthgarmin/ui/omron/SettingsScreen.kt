@@ -103,6 +103,44 @@ fun SettingsScreen(viewModel: OmronViewModel) {
         HorizontalDivider()
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Destructive (task tefal2garmin-7m2): wipes the readings of the
+        // SELECTED monitor user only. A confirm dialog guards the tap and
+        // names the slot; already-uploaded Garmin entries stay on Garmin.
+        var confirmDeleteSlot by rememberSaveable { mutableStateOf(false) }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { confirmDeleteSlot = true }
+                .padding(vertical = 12.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.omron_settings_delete_slot),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+        if (confirmDeleteSlot) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteSlot = false },
+                title = { Text(stringResource(R.string.omron_settings_delete_slot)) },
+                text = { Text(stringResource(R.string.omron_settings_delete_slot_confirm, userSlot)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.deleteReadingsOfSelectedSlot()
+                        confirmDeleteSlot = false
+                    }) {
+                        Text(stringResource(R.string.omron_settings_delete_all_yes))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDeleteSlot = false }) {
+                        Text(stringResource(R.string.omron_settings_delete_cancel))
+                    }
+                },
+            )
+        }
+
         // Destructive: wipes every locally stored reading. A confirm dialog
         // guards the tap; already-uploaded Garmin entries stay on Garmin.
         var confirmDeleteAll by rememberSaveable { mutableStateOf(false) }

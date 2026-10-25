@@ -26,10 +26,17 @@ object OmronBleClient {
 
     private const val TAG = "OmronBleClient"
 
+    /**
+     * One BLE readout of [userSlot]. [fullRead] selects the whole-ring history
+     * transfer (task tefal2garmin-8rb): every stored record of the ring is
+     * read and the device's unread counters are left alone; false reads only
+     * the unread window and resets the counters.
+     */
     suspend fun readNewRecords(
         context: Context,
         key: ByteArray,
         userSlot: Int,
+        fullRead: Boolean,
     ): OmronBleResult = withContext(Dispatchers.IO) {
         val missing = missingPermissions(context)
         if (missing.isNotEmpty()) {
@@ -42,7 +49,7 @@ object OmronBleClient {
             connection = OmronGattConnection.connect(context)
             val transport = GattChannelTransport(connection)
             transport.initialize()
-            val result = OmronSession.readOut(transport, key, userSlot)
+            val result = OmronSession.readOut(transport, key, userSlot, readFullRing = fullRead)
             OmronBleResult.Success(result.readings)
         } catch (e: Exception) {
             if (e !is CancellationException) log(labelFor(e), e)

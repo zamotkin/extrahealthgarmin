@@ -40,9 +40,10 @@ import java.io.File
  * failure lands in [OmronUiState.Error].
  *
  * Collaborators arrive as lambdas/interfaces (manual wiring, no DI framework
- * — same style as ui.MainViewModel): [bleRead] keeps this class free of the
- * omron/ble Android types, so unit tests inject fakes without any BLE
- * scaffolding. [onReloginGarmin] is an explicit callback because the Garmin
+ * — same style as ui.MainViewModel): [bleRead] (context, key, userSlot,
+ * fullRead) keeps this class free of the omron/ble Android types, so unit
+ * tests inject fakes without any BLE scaffolding. [onReloginGarmin] is an
+ * explicit callback because the Garmin
  * login dialog state machine lives in MainActivity/MainViewModel — the
  * activity wires the callback to relaunch MainActivity with the login extra.
  *
@@ -52,7 +53,7 @@ import java.io.File
  */
 class OmronViewModel(
     application: Application,
-    private val bleRead: suspend (Context, ByteArray, Int) -> OmronBleResult,
+    private val bleRead: suspend (Context, ByteArray, Int, Boolean) -> OmronBleResult,
     private val keyProvider: () -> ByteArray,
     private val repository: OmronBpRepository,
     private val coordinator: BpSyncCoordinator,
@@ -91,10 +92,34 @@ class OmronViewModel(
 
     /**
      * User-tapped pass (Start on the transfer screen / Sync on the
-     * dashboard). Re-entrant taps while a pass is running are ignored.
-     * Never throws.
+     * dashboard): reads the unread window only. Re-entrant taps while a pass
+     * is running are ignored. Never throws.
      */
     fun syncNow() {
+        startPass(fullRead = false)
+    }
+
+    /**
+     * User-tapped full-history pass (task tefal2garmin-8rb): reads the
+     * ENTIRE stored ring of the selected monitor user — the recovery path
+     * after an app-side delete-all, when the device's unread counters are
+     * already reset and the history is unreachable through [syncNow]. The
+     * device counters are not consumed: future measurements stay counted and
+     * ride with the next normal pass. Same job slot and re-entrancy handling
+     * as [syncNow] — only one BLE pass is ever in flight.
+     */
+    fun syncFullHistory() {
+        startPass(fullRead = true)
+    }
+
+    /**
+     * The shared transfer pass behind [syncNow] and [syncFullHistory]:
+     * permissions gate -> BLE read of the selected user slot (unread window
+     * or full ring per [fullRead]) -> store readings -> optional Garmin
+     * upload. Occupies [syncJob]; a second tap while it is active is ignored.
+     * Never throws.
+     */
+    private fun startPass(fullRead: Boolean) {
         if (syncJob?.isActive == true) return
 
         val missing = checkPermissions()
@@ -107,7 +132,7 @@ class OmronViewModel(
             _uiState.value = OmronUiState.Reading
             try {
                 val key = keyProvider()
-                when (val result = bleRead(getApplication(), key, settings.userSlot())) {
+                when (val result = bleRead(getApplication(), key, settings.userSlot(), fullRead)) {
                     is OmronBleResult.Success -> onReadingsRead(result.readings)
                     else -> _uiState.value = result.toUiState()
                 }
@@ -179,6 +204,25 @@ class OmronViewModel(
             active?.cancel()
             active?.join()
             repository.deleteAll()
+            loadLatest()
+        }
+    }
+
+    /**
+     * Settings action (task tefal2garmin-7m2): wipes the stored readings of
+     * the SELECTED monitor user slot only — the other slot's history stays
+     * (the two slots are different people). An in-flight transfer is
+     * cancelled and awaited first — otherwise its storeReadings would
+     * silently re-insert the wiped rows on completion. A DAO failure is
+     * silent by design (never-throws gateway) — the reloaded list keeps
+     * showing the rows.
+     */
+    fun deleteReadingsOfSelectedSlot() {
+        val active = syncJob
+        viewModelScope.launch {
+            active?.cancel()
+            active?.join()
+            repository.deleteForUser(settings.userSlot())
             loadLatest()
         }
     }
@@ -337,8 +381,8 @@ class OmronViewModelFactory(
             )
             return OmronViewModel(
                 application = application,
-                bleRead = { context, key, userSlot ->
-                    OmronBleClient.readNewRecords(context, key, userSlot)
+                bleRead = { context, key, userSlot, fullRead ->
+                    OmronBleClient.readNewRecords(context, key, userSlot, fullRead)
                 },
                 keyProvider = { keyStore.getOrCreate() },
                 repository = repository,

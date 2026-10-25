@@ -60,6 +60,11 @@ class BpSyncCoordinatorTest {
             rows.clear()
         }
 
+        override suspend fun deleteForUser(userSlot: Int) {
+            failure?.let { throw it }
+            rows.removeAll { it.userSlot == userSlot }
+        }
+
         override suspend fun insertIgnoreAll(
             records: List<BloodPressureRecordEntity>
         ): List<Long> {

@@ -46,6 +46,8 @@
     <string name="omron_tab_transfer">Перенос</string>
     <string name="omron_tab_settings">Настройки</string>
     <string name="omron_start">Начать перенос</string>
+    <string name="omron_full_transfer">Перенести всю историю</string>
+    <string name="omron_full_transfer_hint">Читает все сохранённые измерения выбранного пользователя тонометра, а не только новые</string>
     <string name="omron_pairing_step1">Зажмите кнопку передачи на тонометре на 3-5 секунд, пока на экране не появится -P-</string>
     <string name="omron_pairing_step2">Держите тонометр рядом с телефоном - по завершении переноса он покажет [OK]</string>
     <string name="omron_pairing_step3">Тонометр работает с одним приложением одновременно - сначала отвяжите его от Omron Connect</string>
@@ -76,6 +78,8 @@
     <string name="omron_settings_user_section">Пользователь тонометра</string>
     <string name="omron_slot_hint">Измерения каждого пользователя тонометра переносятся и хранятся отдельно</string>
     <string name="omron_settings_relogin">Повторно войти в Garmin</string>
+    <string name="omron_settings_delete_slot">Удалить измерения профиля</string>
+    <string name="omron_settings_delete_slot_confirm">Это навсегда удалит сохранённые в приложении измерения пользователя тонометра %1$d.</string>
     <string name="omron_settings_delete_all">Удалить все измерения</string>
     <string name="omron_settings_delete_all_confirm">Это навсегда удалит все измерения, сохранённые в приложении. Уже загруженные в Garmin измерения там не удаляются.</string>
     <string name="omron_settings_delete_all_yes">Удалить</string>

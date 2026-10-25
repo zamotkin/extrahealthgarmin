@@ -2,6 +2,7 @@ package com.zamotkin.extrahealthgarmin.omron.protocol
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -107,5 +108,38 @@ class ReadPlanCalculatorTest {
         assertEquals(0, plan[0].size)                        // slot 0 * 16 = nothing before head
         assertEquals(0x0098, plan[1].address)
         assertEquals(100 * 0x10, plan[1].size)
+    }
+
+    // ------------------------------------------------------------------ //
+    //  planFullRing (task tefal2garmin-8rb, omblepy                       //
+    //  _getReadCommands_AllRecords)                                      //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `planFullRing covers the entire USER1 ring in one command`() {
+        val command = calc.planFullRing(userIdx = 0)
+        assertEquals(0x0098, command.address)
+        // 100 slots x 16 bytes = 0x640: the ring spans 0x0098-0x06D7 (capture-confirmed)
+        assertEquals(100 * 0x10, command.size)
+        assertEquals(0x06D8, command.address + command.size)
+    }
+
+    @Test
+    fun `planFullRing covers the entire USER2 ring in one command`() {
+        val command = calc.planFullRing(userIdx = 1)
+        assertEquals(0x06D8, command.address)
+        // The USER2 ring spans 0x06D8-0x0D17 (2026-10-25 capture: newest record at 0x0D08, slot 99)
+        assertEquals(100 * 0x10, command.size)
+        assertEquals(0x0D18, command.address + command.size)
+    }
+
+    @Test
+    fun `planFullRing rejects userIdx outside 0-1`() {
+        try {
+            calc.planFullRing(userIdx = 2)
+            fail("expected IllegalArgumentException for userIdx=2")
+        } catch (e: IllegalArgumentException) {
+            // expected — same guard as planForUser
+        }
     }
 }

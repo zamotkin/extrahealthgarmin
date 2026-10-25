@@ -55,10 +55,12 @@ class OmronViewModelTest {
     private var bleError: Exception? = null
     private var bleCalls = 0
     private var lastBleSlot = -1
-    private val bleRead: suspend (Context, ByteArray, Int) -> OmronBleResult =
-        { _, _, slot ->
+    private var lastBleFullRead: Boolean? = null
+    private val bleRead: suspend (Context, ByteArray, Int, Boolean) -> OmronBleResult =
+        { _, _, slot, fullRead ->
             bleCalls++
             lastBleSlot = slot
+            lastBleFullRead = fullRead
             bleError?.let { throw it }
             bleResult
         }
@@ -111,6 +113,11 @@ class OmronViewModelTest {
         override suspend fun deleteAll() {
             failure?.let { throw it }
             rows.clear()
+        }
+
+        override suspend fun deleteForUser(userSlot: Int) {
+            failure?.let { throw it }
+            rows.removeAll { it.userSlot == userSlot }
         }
 
         override suspend fun insertIgnoreAll(
@@ -228,6 +235,75 @@ class OmronViewModelTest {
         drain()
 
         assertEquals("delete-all failure must not wipe rows", 1, dao.rows.size)
+        assertEquals(1, viewModel.latestReadings.value?.size ?: 0)
+    }
+
+    /**
+     * Settings per-profile delete (task tefal2garmin-7m2): wipes ONLY the
+     * selected slot's rows, reloads the (now empty) list of that slot.
+     */
+    @Test
+    fun `delete_selected_slot_wipes_only_that_slot_and_reloads_the_list`() {
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 1, systolic = 120, diastolic = 80, pulse = 65,
+            mov = false, ihb = false, userSlot = 1
+        )
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 2, systolic = 125, diastolic = 85, pulse = 70,
+            mov = false, ihb = false, userSlot = 1
+        )
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 3, systolic = 110, diastolic = 70, pulse = 60,
+            mov = false, ihb = false, userSlot = 2
+        )
+
+        viewModel.deleteReadingsOfSelectedSlot() // slot 1 is selected by default
+        drain()
+
+        assertEquals("only slot 1 rows wiped; slot 2 is another person", 1, dao.rows.size)
+        assertEquals(2, dao.rows.single().userSlot)
+        assertEquals(emptyList<BloodPressureReading>(), viewModel.latestReadings.value)
+    }
+
+    /** The per-profile delete follows the selected slot: slot 2 wipes slot 2 only. */
+    @Test
+    fun `delete_selected_slot_follows_the_selection_to_slot_2`() {
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 1, systolic = 120, diastolic = 80, pulse = 65,
+            mov = false, ihb = false, userSlot = 1
+        )
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 3, systolic = 110, diastolic = 70, pulse = 60,
+            mov = false, ihb = false, userSlot = 2
+        )
+        viewModel.selectUserSlot(2)
+        drain()
+
+        viewModel.deleteReadingsOfSelectedSlot()
+        drain()
+
+        assertEquals("slot 1 rows survive a slot-2 delete", 1, dao.rows.size)
+        assertEquals(1, dao.rows.single().userSlot)
+        // the reloaded list serves the selected (now empty) slot 2
+        assertEquals(emptyList<BloodPressureReading>(), viewModel.latestReadings.value)
+    }
+
+    /**
+     * Same silent-failure contract as delete-all: a DAO failure wipes nothing
+     * and surfaces no error state — the reloaded list keeps the rows.
+     */
+    @Test
+    fun `delete_selected_slot_dao_failure_is_silent_and_keeps_rows`() {
+        dao.rows += BloodPressureRecordEntity(
+            timestampEpochSec = 1, systolic = 120, diastolic = 80, pulse = 65,
+            mov = false, ihb = false, userSlot = 1
+        )
+        dao.failure = IllegalStateException("disk gone")
+
+        viewModel.deleteReadingsOfSelectedSlot()
+        drain()
+
+        assertEquals("slot-delete failure must not wipe rows", 1, dao.rows.size)
         assertEquals(1, viewModel.latestReadings.value?.size ?: 0)
     }
 
@@ -432,6 +508,71 @@ class OmronViewModelTest {
         drain()
 
         assertEquals(1, bleCalls)
+    }
+
+    // --- full-history pass (task tefal2garmin-8rb) ------------------------- //
+
+    @Test
+    fun syncNow_passesFullReadFalse() {
+        bleResult = OmronBleResult.Success(listOf(reading(1_000)))
+
+        viewModel.syncNow()
+        pumpUntil { it is OmronUiState.Success }
+
+        assertEquals(false, lastBleFullRead)
+    }
+
+    @Test
+    fun syncFullHistory_passesFullReadTrue_andRunsTheSamePass() {
+        bleResult = OmronBleResult.Success(listOf(reading(1_000)))
+
+        viewModel.syncFullHistory()
+        pumpUntil { it is OmronUiState.Success }
+
+        assertEquals(1, bleCalls)
+        assertEquals(true, lastBleFullRead)
+        // the pass is the same one as syncNow: store + auto-upload + Success
+        assertEquals(1, dao.rows.size)
+        assertEquals(1, uploadCalls)
+        assertEquals(OmronUiState.Success(1), viewModel.uiState.value)
+        assertEquals(1, viewModel.latestReadings.value?.size)
+    }
+
+    @Test
+    fun syncFullHistory_obeysThePermissionsGate() {
+        missing = listOf("android.permission.BLUETOOTH_SCAN")
+
+        viewModel.syncFullHistory()
+        drain()
+
+        assertTrue(viewModel.uiState.value is OmronUiState.PermissionsMissing)
+        assertEquals(0, bleCalls)
+    }
+
+    /**
+     * Same job slot as syncNow (task tefal2garmin-8rb): only one BLE pass is
+     * ever in flight — a full-history pass blocks a plain pass, and a running
+     * plain pass blocks the full-history one.
+     */
+    @Test
+    fun syncFullHistory_sharesTheJobSlotWithSyncNow() {
+        bleResult = OmronBleResult.Success(listOf(reading(1_000)))
+        viewModel.syncFullHistory() // launched, paused on the test dispatcher
+        viewModel.syncNow()         // must be swallowed by the shared guard
+        drain()
+        assertEquals(1, bleCalls)
+        assertEquals(true, lastBleFullRead)
+
+        // and the other direction: one completed plain pass (2nd call), then a
+        // plain pass paused on the dispatcher blocks the full-history tap
+        viewModel.syncNow()
+        pumpUntil { it is OmronUiState.Success }
+        assertEquals(2, bleCalls)
+        viewModel.syncNow()         // launched, paused on the test dispatcher
+        viewModel.syncFullHistory() // must be swallowed by the shared guard
+        drain()
+        assertEquals(3, bleCalls)   // the 3rd pass is the plain one, not a second full read
+        assertEquals(false, lastBleFullRead)
     }
 
     // --- settings + list -------------------------------------------------- //

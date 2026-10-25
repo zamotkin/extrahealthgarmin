@@ -41,6 +41,11 @@ class OmronBpRepositoryTest {
             rows.clear()
         }
 
+        override suspend fun deleteForUser(userSlot: Int) {
+            failure?.let { throw it }
+            rows.removeAll { it.userSlot == userSlot }
+        }
+
         override suspend fun insertIgnoreAll(
             records: List<BloodPressureRecordEntity>
         ): List<Long> {
@@ -340,6 +345,46 @@ class OmronBpRepositoryTest {
         val deleted = repository.deleteAll()
 
         assertFalse(deleted)
+        assertEquals(1, errors.size)
+    }
+
+    // ------------------------------------------------------------------ //
+    //  deleteForUser (task tefal2garmin-7m2)                              //
+    // ------------------------------------------------------------------ //
+
+    /** Settings "delete profile readings": only that slot's rows die. */
+    @Test
+    fun `delete_for_user_removes_only_that_slots_rows`() = runTest {
+        repository.storeReadings(
+            listOf(
+                reading(1_000, userSlot = 1), reading(2_000, userSlot = 1),
+                reading(3_000, userSlot = 2)
+            )
+        )
+
+        val deleted = repository.deleteForUser(userSlot = 1)
+
+        assertTrue(deleted)
+        assertEquals(
+            "only the other slot's row survives",
+            listOf(3_000L),
+            dao.rows.map { it.timestampEpochSec },
+        )
+        // the untouched slot stays fully queryable
+        assertEquals(1, repository.unsynced(userSlot = 2).size)
+        assertEquals(0, repository.unsynced(userSlot = 1).size)
+    }
+
+    /** A DAO failure on deleteForUser reports false, wipes nothing. */
+    @Test
+    fun `delete_for_user_failure_reports_false_and_keeps_rows`() = runTest {
+        repository.storeReadings(listOf(reading(1_000, userSlot = 1), reading(2_000, userSlot = 2)))
+        dao.failure = IllegalStateException("disk gone")
+
+        val deleted = repository.deleteForUser(userSlot = 1)
+
+        assertFalse(deleted)
+        assertEquals(2, dao.rows.size)
         assertEquals(1, errors.size)
     }
 }

@@ -64,4 +64,11 @@ interface BloodPressureDao {
     /** Deletes every stored record (the settings "delete all readings" action). */
     @Query("DELETE FROM blood_pressure_records")
     suspend fun deleteAll()
+
+    /**
+     * Deletes every stored record of one user slot (the settings "delete
+     * profile readings" action) — the other slot's rows are untouched.
+     */
+    @Query("DELETE FROM blood_pressure_records WHERE userSlot = :userSlot")
+    suspend fun deleteForUser(userSlot: Int)
 }

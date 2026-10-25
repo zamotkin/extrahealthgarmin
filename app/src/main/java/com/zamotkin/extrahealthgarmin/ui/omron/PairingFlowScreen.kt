@@ -76,11 +76,26 @@ fun PairingFlowScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         when (val current = state) {
-            OmronUiState.Idle, null -> Button(
-                onClick = { viewModel.syncNow() },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(R.string.omron_start))
+            OmronUiState.Idle, null -> {
+                Button(
+                    onClick = { viewModel.syncNow() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.omron_start))
+                }
+                // Full-ring history transfer (task tefal2garmin-8rb): the
+                // recovery path after an app-side delete-all.
+                OutlinedButton(
+                    onClick = { viewModel.syncFullHistory() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.omron_full_transfer))
+                }
+                Text(
+                    text = stringResource(R.string.omron_full_transfer_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             is OmronUiState.PermissionsMissing -> {

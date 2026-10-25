@@ -268,6 +268,87 @@ class OmronSessionTest {
         assertEquals(4, transport.commandWrites.size)
     }
 
+    /**
+     * Full-ring mode (task tefal2garmin-8rb, omblepy
+     * `getRecords(useUnreadCounter=False)`): the WHOLE USER1 ring is read in
+     * 16-byte chunks regardless of the unread counters (unread=1 here is
+     * ignored), and the 0x0054 unread-reset write never happens — future
+     * measurements stay counted. Unlock/start/settings/end are unchanged.
+     */
+    @Test
+    fun `full_ring_mode_reads_whole_ring_and_never_writes_the_unread_reset`() = runTest {
+        val record = validRecord()
+        val ringReads = (0 until 100).map { slot ->
+            okFrame(OmronProtocol.RESP_READ, 0x0098 + slot * 0x10, record)
+        }
+        val transport = FakeTransport(
+            unlockResponses = ArrayDeque(listOf(byteArrayOf(0x81.toByte(), 0x00))),
+            commandResponses = ArrayDeque(
+                listOf(
+                    okFrame(OmronProtocol.RESP_SESSION_START, 0x0010),
+                    settingsResponse(),
+                ) + ringReads + listOf(
+                    okFrame(OmronProtocol.RESP_SESSION_END, 0x0000, byteArrayOf(0x00)),
+                ),
+            ),
+        )
+
+        val result = OmronSession.readOut(transport, key, userSlot = 1, readFullRing = true)
+
+        assertEquals(100, result.readings.size)
+        assertEquals(0, result.skippedRecords)
+        // start + settings read + 100 ring reads + end — and NOT ONE write frame
+        assertEquals(103, transport.commandWrites.size)
+        assertTrue(
+            "the unread-counter reset must never be written in full-ring mode",
+            transport.commandWrites.none { frameType(it) == OmronProtocol.TYPE_WRITE },
+        )
+        assertTrue(
+            "no write may target the settings write address 0x0054",
+            transport.commandWrites.none { frameAddress(it) == 0x0054 },
+        )
+        // everything else is identical: settings read still targets 0x0010...
+        assertEquals(OmronProtocol.TYPE_READ, frameType(transport.commandWrites[1]))
+        assertEquals(0x0010, frameAddress(transport.commandWrites[1]))
+        // ...and the record reads sweep the whole ring 0x0098-0x06D7 in 16-byte blocks
+        val reads = transport.commandWrites.drop(2).dropLast(1)
+        assertEquals(100, reads.size)
+        assertEquals(0x0098, frameAddress(reads.first()))
+        assertEquals(0x0098 + 99 * 0x10, frameAddress(reads.last()))
+        assertEquals(0x10, reads.first()[5].toInt() and 0xFF)
+        // ...and the session end still runs
+        assertArrayEquals(SessionFrameCodec.SESSION_END_FRAME, transport.commandWrites.last())
+    }
+
+    /** USER2 full-ring mode reads from the USER2 base 0x06D8. */
+    @Test
+    fun `full_ring_mode_user2_reads_the_user2_ring`() = runTest {
+        val record = validRecord()
+        val ringReads = (0 until 100).map { slot ->
+            okFrame(OmronProtocol.RESP_READ, 0x06D8 + slot * 0x10, record)
+        }
+        val transport = FakeTransport(
+            unlockResponses = ArrayDeque(listOf(byteArrayOf(0x81.toByte(), 0x00))),
+            commandResponses = ArrayDeque(
+                listOf(
+                    okFrame(OmronProtocol.RESP_SESSION_START, 0x0010),
+                    settingsResponse(),
+                ) + ringReads + listOf(
+                    okFrame(OmronProtocol.RESP_SESSION_END, 0x0000, byteArrayOf(0x00)),
+                ),
+            ),
+        )
+
+        val result = OmronSession.readOut(transport, key, userSlot = 2, readFullRing = true)
+
+        assertEquals(100, result.readings.size)
+        assertEquals(100, result.readings.count { it.userSlot == 2 })
+        val reads = transport.commandWrites.drop(2).dropLast(1)
+        assertEquals(0x06D8, frameAddress(reads.first()))
+        assertEquals(0x06D8 + 99 * 0x10, frameAddress(reads.last()))
+        assertTrue(transport.commandWrites.none { frameType(it) == OmronProtocol.TYPE_WRITE })
+    }
+
     private fun frameType(frame: ByteArray): Int =
         (frame[1].toInt() and 0xFF) shl 8 or (frame[2].toInt() and 0xFF)
 

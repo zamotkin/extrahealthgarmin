@@ -50,6 +50,8 @@
     <string name="omron_pairing_step2">Keep the monitor close to the phone — it shows [OK] when the transfer is complete</string>
     <string name="omron_pairing_step3">The monitor works with one app at a time — unpair it from Omron Connect first</string>
     <string name="omron_start">Start transfer</string>
+    <string name="omron_full_transfer">Transfer full history</string>
+    <string name="omron_full_transfer_hint">Reads every stored measurement of the selected monitor user, not just new ones</string>
     <string name="omron_reading">Reading from the monitor...</string>
     <string name="omron_permissions_rationale">Bluetooth permissions are required to read from the monitor</string>
     <string name="omron_permissions_grant">Grant permissions</string>
@@ -77,6 +79,8 @@
     <string name="omron_settings_user_section">Monitor user</string>
     <string name="omron_slot_hint">Each monitor user has measurements transferred and stored separately</string>
     <string name="omron_settings_relogin">Sign in to Garmin again</string>
+    <string name="omron_settings_delete_slot">Delete profile readings</string>
+    <string name="omron_settings_delete_slot_confirm">This permanently deletes the readings of monitor user %1$d stored in the app.</string>
     <string name="omron_settings_delete_all">Delete all readings</string>
     <string name="omron_settings_delete_all_confirm">This permanently deletes every reading stored in the app. Measurements already uploaded to Garmin are not removed there.</string>
     <string name="omron_settings_delete_all_yes">Delete</string>
