@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API < 31 counterpart of res/xml/data_extraction_rules.xml (task
+  tefal2garmin-lnm): keep blood-pressure medical data and the upload journal
+  out of Android's auto-backup. See the extraction-rules file for rationale.
+-->
+<full-backup-content>
+    <exclude domain="file" path="bp_upload_journal.json" />
+    <exclude domain="database" path="blood_pressure.db" />
+    <exclude domain="database" path="blood_pressure.db-wal" />
+    <exclude domain="database" path="blood_pressure.db-shm" />
+</full-backup-content>

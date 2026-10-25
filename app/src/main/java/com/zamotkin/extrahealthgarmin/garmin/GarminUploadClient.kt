@@ -1,6 +1,7 @@
 package com.zamotkin.extrahealthgarmin.garmin
 
 import android.util.Log
+import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -37,14 +38,17 @@ sealed class UploadResult {
 }
 
 /**
- * Batched weigh-in uploader for the unofficial Garmin Connect
- * `POST /upload-service/upload` endpoint (the python-garminconnect
- * `add_body_composition` flow, Kotlin + official FIT SDK):
+ * Batched FIT uploader (weigh-ins and blood pressure) for the unofficial
+ * Garmin Connect `POST /upload-service/upload` endpoint (the
+ * python-garminconnect `add_body_composition` flow, Kotlin + official FIT
+ * SDK):
  *
  *  1. empty input short-circuits to [UploadResult.Success] with ZERO network
- *     calls (rate-limit hygiene); records are range-validated before encode;
- *  2. all records become ONE `body_composition.fit` multipart part (part
- *     name `file`) — no per-record upload loops;
+ *     calls (rate-limit hygiene); weigh-in records are range-validated
+ *     before encode;
+ *  2. all records become ONE FIT multipart part (part name `file`,
+ *     `body_composition.fit` for weigh-ins, `blood_pressure.fit` for blood
+ *     pressure) — no per-record upload loops;
  *  3. the request carries the native GCM-Android headers plus
  *     `Authorization: Bearer <di_token>`;
  *  4. `detailedImportResult` decides Success vs Partial.
@@ -80,47 +84,84 @@ class GarminUploadClient(
             Log.d(TAG, "Upload: no new records - skipping network entirely")
             return@withContext UploadResult.Success(0, tokens)
         }
+        // Range validation BEFORE any network call: the FIT uint16 field
+        // scales would silently truncate out-of-range floats.
         GarminWeighInRecord.validateRanges(records)
-        val (call, current) = postFit(FitWeightFileBuilder.build(records), FIT_FILENAME, tokens)
-        if (call.code == GarminHttp.HTTP_NO_CONTENT) {
-            UploadResult.Success(records.size, current)
-        } else {
-            parseUploadOutcome(call, records, current)
-        }
+        uploadFitBatch(
+            fitBytes = FitWeightFileBuilder.build(records),
+            fileName = WEIGH_IN_FIT_FILENAME,
+            tokens = tokens,
+            keys = records.map { it.journalKey() }
+        )
     }
 
     /**
-     * Uploads [readings] as one blood pressure FIT file. Returns the (possibly
-     * refreshed) tokens the caller must persist; any Garmin-side failure —
-     * including per-record `failures` — throws [GarminConnectionError] (or the
-     * typed auth / rate-limit errors), so the caller can keep the readings
-     * for a retry.
+     * Blood-pressure counterpart of [uploadWeighIns]: encodes [records] via
+     * [FitBloodPressureFileBuilder] into one `blood_pressure.fit` batch and
+     * rides the SAME upload path (multipart request, retry discipline, 401
+     * refresh, Partial correlation through [bpJournalKey] composite keys).
+     * No range validation — device-decoded values are small non-negative
+     * integers far inside the uint16 wire range (see
+     * [FitBloodPressureFileBuilder]). Same typed-exception contract.
      */
     suspend fun uploadBloodPressure(
-        readings: List<GarminBloodPressureReading>,
+        records: List<BloodPressureReading>,
         tokens: GarminTokens
-    ): GarminTokens = withContext(Dispatchers.IO) {
-        val (call, current) = postFit(
-            FitBloodPressureFileBuilder.build(readings), BLOOD_PRESSURE_FILENAME, tokens
-        )
-        if (call.code == GarminHttp.HTTP_NO_CONTENT) return@withContext current
-        val result = GarminHttp.parseJsonBody("Upload", call).optJSONObject(DETAILED_IMPORT_RESULT_KEY)
-        val failures = result?.optJSONArray(FAILURES_KEY)
-        if (call.code !in 200..299 || (failures != null && failures.length() > 0)) {
-            throw GarminConnectionError("Blood pressure upload failed: HTTP ${call.code} ${failures ?: ""}")
+    ): UploadResult = withContext(Dispatchers.IO) {
+        if (records.isEmpty()) {
+            Log.d(TAG, "Upload: no new BP records - skipping network entirely")
+            return@withContext UploadResult.Success(0, tokens)
         }
-        current
+        uploadFitBatch(
+            fitBytes = FitBloodPressureFileBuilder.build(records),
+            fileName = BLOOD_PRESSURE_FIT_FILENAME,
+            tokens = tokens,
+            keys = records.map { it.bpJournalKey() }
+        )
     }
 
     /**
-     * POSTs one FIT file with the retry discipline described on the class and
-     * returns the final (204 or non-retryable) response plus the tokens used.
+     * Health-Connect-source blood pressure (originally PR #7): same batched
+     * FIT upload, but the caller contract predates UploadResult — it expects
+     * the (possibly refreshed) tokens back and a THROW on any Garmin-side
+     * failure, so the caller can keep the readings for a retry.
      */
-    private suspend fun postFit(
+    suspend fun uploadHcBloodPressure(
+        readings: List<GarminBloodPressureReading>,
+        tokens: GarminTokens
+    ): GarminTokens {
+        val result = withContext(Dispatchers.IO) {
+            uploadFitBatch(
+                fitBytes = FitHcBloodPressureFileBuilder.build(readings),
+                fileName = BLOOD_PRESSURE_FIT_FILENAME,
+                tokens = tokens,
+                keys = emptyList()
+            )
+        }
+        return when (result) {
+            is UploadResult.Success -> result.tokens
+            is UploadResult.Partial ->
+                throw GarminConnectionError(
+                    "Blood pressure upload failed: ${result.failureMessages}"
+                )
+        }
+    }
+
+    /**
+     * Shared batched-FIT upload core behind [uploadWeighIns] and
+     * [uploadBloodPressure]: posts [fitBytes] as one multipart `file` part
+     * named [fileName], retries transport failures/5xx up to [MAX_ATTEMPTS]
+     * with jittered backoff, refreshes the DI token exactly once on 401, and
+     * maps the final response onto [UploadResult] — [keys] holds the journal
+     * key of every batch position, so Partial failures correlate back to
+     * records by index. Throws typed exceptions, never failed result values.
+     */
+    private suspend fun uploadFitBatch(
         fitBytes: ByteArray,
         fileName: String,
-        tokens: GarminTokens
-    ): Pair<GarminHttp.HttpCallResult, GarminTokens> {
+        tokens: GarminTokens,
+        keys: List<String>
+    ): UploadResult {
         var current = authClient.refreshIfNeeded(tokens)
         var refreshedAfter401 = false
         var attempt = 0
@@ -136,6 +177,8 @@ class GarminUploadClient(
                 throw e
             }
             when {
+                call.code == GarminHttp.HTTP_NO_CONTENT ->
+                    return UploadResult.Success(keys.size, current)
                 call.code == GarminHttp.HTTP_UNAUTHORIZED && !refreshedAfter401 -> {
                     Log.d(TAG, "Upload: HTTP 401 - refreshing DI token once and retrying")
                     current = authClient.forceRefresh(current)
@@ -150,9 +193,10 @@ class GarminUploadClient(
                 call.code == GarminHttp.HTTP_NOT_FOUND ->
                     throw GarminNotFoundError("Upload endpoint returned HTTP 404")
                 call.code >= 500 && attempt < MAX_ATTEMPTS -> backoffAndWait(attempt)
-                else -> return call to current
+                else -> return parseUploadOutcome(call, keys, current)
             }
         }
+        throw IllegalStateException("upload retry loop must never exit normally")
     }
 
     // ------------------------------------------------------------------ //
@@ -169,16 +213,16 @@ class GarminUploadClient(
      */
     private fun parseUploadOutcome(
         call: GarminHttp.HttpCallResult,
-        records: List<GarminWeighInRecord>,
+        keys: List<String>,
         tokens: GarminTokens
     ): UploadResult {
         val json = GarminHttp.parseJsonBody("Upload", call)
         val failures = json.optJSONObject(DETAILED_IMPORT_RESULT_KEY)
             ?.optJSONArray(FAILURES_KEY)
         return if (failures != null && failures.length() > 0) {
-            buildPartial(failures, records, tokens)
+            buildPartial(failures, keys, tokens)
         } else if (call.code in 200..299) {
-            UploadResult.Success(records.size, tokens)
+            UploadResult.Success(keys.size, tokens)
         } else {
             val detail = json.optString(MESSAGE_KEY)
                 .ifBlank { json.optString(CONTENT_KEY) }
@@ -204,7 +248,7 @@ class GarminUploadClient(
      */
     private fun buildPartial(
         failures: JSONArray,
-        records: List<GarminWeighInRecord>,
+        keys: List<String>,
         tokens: GarminTokens
     ): UploadResult.Partial {
         val messages = mutableListOf<String>()
@@ -225,16 +269,16 @@ class GarminUploadClient(
                 messages += "Failure ${i + 1} (no message)"
             }
             val index = entry.optInt(INDEX_KEY, -1)
-            if (index in records.indices) {
+            if (index in keys.indices) {
                 failedIndices += index
             } else {
                 allCorrelatable = false
             }
         }
         val succeededKeys = if (allCorrelatable) {
-            records.indices
+            keys.indices
                 .filter { it !in failedIndices }
-                .map { records[it].journalKey() }
+                .map { keys[it] }
         } else {
             emptyList()
         }
@@ -280,8 +324,8 @@ class GarminUploadClient(
         private const val API_BASE_URL = "https://connectapi.garmin.com"
         private const val UPLOAD_PATH = "/upload-service/upload"
         private const val PART_NAME = "file"
-        private const val FIT_FILENAME = "body_composition.fit"
-        private const val BLOOD_PRESSURE_FILENAME = "blood_pressure.fit"
+        private const val WEIGH_IN_FIT_FILENAME = "body_composition.fit"
+        private const val BLOOD_PRESSURE_FIT_FILENAME = "blood_pressure.fit"
         private val FIT_MEDIA_TYPE = "application/octet-stream".toMediaType()
 
         private const val DETAILED_IMPORT_RESULT_KEY = "detailedImportResult"

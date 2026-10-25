@@ -49,7 +49,7 @@ class GarminBloodPressureRepository internal constructor(
                 override suspend fun uploadBloodPressure(
                     readings: List<GarminBloodPressureReading>,
                     tokens: GarminTokens
-                ) = upload.uploadBloodPressure(readings, tokens)
+                ) = upload.uploadHcBloodPressure(readings, tokens)
             }
         },
         tokenStore = GarminTokenStore(SharedPreferencesTokenPersistence(context), KeystoreAesCrypto())

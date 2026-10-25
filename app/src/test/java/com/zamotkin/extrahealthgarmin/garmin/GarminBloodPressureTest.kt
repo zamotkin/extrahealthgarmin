@@ -40,7 +40,7 @@ class GarminBloodPressureTest {
 
     @Test
     fun `fit file is a blood pressure file with timestamp, pressures and pulse`() {
-        val bytes = FitBloodPressureFileBuilder.build(listOf(GarminBloodPressureReading(utc0331, mdt, 120, 80, 70)))
+        val bytes = FitHcBloodPressureFileBuilder.build(listOf(GarminBloodPressureReading(utc0331, mdt, 120, 80, 70)))
         val fileIds = mutableListOf<FileIdMesg>()
         val readings = mutableListOf<BloodPressureMesg>()
         Decoder(bytes).apply {

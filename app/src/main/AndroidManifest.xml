@@ -8,6 +8,27 @@
     <!-- Background-sync problem notifications (health/SyncAlerts.kt) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Omron M7 BLE readout (epic tefal2garmin-xtg): Android 12+ runtime
+         permissions. neverForLocation: the scan targets the Blood Pressure
+         service UUID and never derives location. Runtime requests are owned
+         by the UI epic; omron/ble only checks before connecting. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Legacy permissions for the pre-31 path (minSdk 26). BLUETOOTH/
+         BLUETOOTH_ADMIN are install-time. ACCESS_FINE_LOCATION is a
+         dangerous permission whose runtime grant has been required since
+         API 23: without it pre-31 BLE scans silently return empty results
+         (task tefal2garmin-983). Runtime requests are owned by the UI
+         epic; OmronBleClient.missingPermissions checks the grant before
+         connecting. Capped at API 30 so Android 12+ installs stay
+         location-free. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
     <!-- Health Connect (task 2b): the seven synced record types plus
          background reads for the periodic SyncWorker. Must stay in sync with
          health/HealthPermissions.kt (HealthPermissionsTest pins the set).
@@ -35,6 +56,8 @@
     <application
         android:name=".ExtraHealthApplication"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -51,6 +74,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Omron blood-pressure UI (epic tefal2garmin-939, task
+             tefal2garmin-mnb): Compose host for the transfer flow, readings
+             dashboard and settings. Launched only from MainActivity. -->
+        <activity
+            android:name=".ui.omron.OmronActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ExtraHealthGarmin.NoActionBar" />
 
         <!-- Health Connect permission-usage rationale (task 2b): the system
              entry point behind Health Connect's "see how this app uses your

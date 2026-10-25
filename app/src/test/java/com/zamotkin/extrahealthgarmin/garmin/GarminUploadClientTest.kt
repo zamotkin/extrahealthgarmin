@@ -1,11 +1,13 @@
 package com.zamotkin.extrahealthgarmin.garmin
 
+import com.garmin.fit.BloodPressureMesg
 import com.garmin.fit.Decoder
 import com.garmin.fit.File
 import com.garmin.fit.FileIdMesg
 import com.garmin.fit.Mesg
 import com.garmin.fit.MesgNum
 import com.garmin.fit.WeightScaleMesg
+import com.zamotkin.extrahealthgarmin.omron.BloodPressureReading
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -428,6 +430,75 @@ class GarminUploadClientTest {
     }
 
     // ------------------------------------------------------------------ //
+    //  Blood-pressure uploads (same shared path, blood_pressure.fit)      //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `bp_upload_posts_blood_pressure_fit_with_decodable_messages`() = runBlocking {
+        server.enqueue(jsonResponse(successBody(2)))
+
+        val result = client.uploadBloodPressure(
+            listOf(bpReading(EPOCH_1, userSlot = 1), bpReading(EPOCH_1, userSlot = 2)),
+            tokens()
+        )
+
+        assertEquals(2, (result as UploadResult.Success).count)
+        val request = server.takeRequest()
+        assertEquals("/upload-service/upload", request.path)
+        // Decode first: it clones the one-shot body, but readUtf8() would drain it.
+        val decoded = decodeCapturedBpFit(request)
+        val body = request.body.readUtf8()
+        assertTrue("part name must be 'file': $body", body.contains("name=\"file\""))
+        assertTrue("filename must be blood_pressure.fit: $body",
+            body.contains("filename=\"blood_pressure.fit\""))
+        assertEquals(1, decoded.fileIds.size)
+        assertEquals(File.BLOOD_PRESSURE, decoded.fileIds[0].type)
+        assertEquals(
+            "both user slots travel as separate messages (profile index 0 and 1)",
+            listOf(0, 1),
+            decoded.bloodPressures.map { it.userProfileIndex }
+        )
+        assertEquals(
+            "same measurement time, two user slots: both timestamps survive",
+            listOf(EPOCH_1, EPOCH_1),
+            decoded.bloodPressures.map { it.timestamp.getDate().time / 1000 }
+        )
+    }
+
+    @Test
+    fun `bp_empty_records_returns_success_zero_without_network`() = runBlocking {
+        val result = client.uploadBloodPressure(emptyList(), tokens())
+
+        assertEquals(0, (result as UploadResult.Success).count)
+        assertEquals("empty input must produce ZERO requests", 0, server.requestCount)
+    }
+
+    @Test
+    fun `bp_indexed_failures_return_partial_with_slot_aware_keys`() = runBlocking {
+        server.enqueue(
+            jsonResponse(
+                """{"detailedImportResult":{"successes":[],"failures":[
+                    {"index":0,"messages":["Duplicate detection - existing measurement"]}
+                ]}}"""
+            )
+        )
+
+        val result = client.uploadBloodPressure(
+            listOf(bpReading(EPOCH_1, userSlot = 1), bpReading(EPOCH_1, userSlot = 2)),
+            tokens()
+        )
+
+        assertTrue("expected Partial, got $result", result is UploadResult.Partial)
+        val partial = result as UploadResult.Partial
+        assertEquals(
+            "succeededKeys are composite ts:slot keys — USER2 must survive USER1's failure",
+            listOf("${EPOCH_1}:2"),
+            partial.succeededKeys
+        )
+        assertEquals(listOf("Duplicate detection - existing measurement"), partial.failureMessages)
+    }
+
+    // ------------------------------------------------------------------ //
     //  Helpers                                                            //
     // ------------------------------------------------------------------ //
 
@@ -441,6 +512,19 @@ class GarminUploadClientTest {
         bmi: Float? = 24.5f
     ): GarminWeighInRecord =
         GarminWeighInRecord(epochSecondsUtc, weightKg, percentFat, bmi)
+
+    private fun bpReading(
+        epochSecondsUtc: Long,
+        userSlot: Int = 1
+    ): BloodPressureReading = BloodPressureReading(
+        timestampEpochSec = epochSecondsUtc,
+        systolic = 128,
+        diastolic = 82,
+        pulse = 62,
+        mov = false,
+        ihb = false,
+        userSlot = userSlot
+    )
 
     private fun jsonResponse(body: String, code: Int = 200): MockResponse =
         MockResponse().setResponseCode(code)
@@ -523,9 +607,30 @@ class GarminUploadClientTest {
         return -1
     }
 
+    /** Decodes the captured multipart FIT part into blood-pressure messages. */
+    private fun decodeCapturedBpFit(request: RecordedRequest): DecodedBpFit {
+        val bytes = extractFitPartBytes(request)
+        val decoder = Decoder(bytes)
+        val fileIds = mutableListOf<FileIdMesg>()
+        val bloodPressures = mutableListOf<BloodPressureMesg>()
+        decoder.addListener { mesg: Mesg ->
+            when (mesg.num) {
+                MesgNum.FILE_ID -> fileIds += FileIdMesg(mesg)
+                MesgNum.BLOOD_PRESSURE -> bloodPressures += BloodPressureMesg(mesg)
+            }
+        }
+        decoder.read()
+        return DecodedBpFit(fileIds, bloodPressures)
+    }
+
     private class DecodedFit(
         val fileIds: List<FileIdMesg>,
         val weights: List<WeightScaleMesg>
+    )
+
+    private class DecodedBpFit(
+        val fileIds: List<FileIdMesg>,
+        val bloodPressures: List<BloodPressureMesg>
     )
 
     companion object {

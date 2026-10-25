@@ -1,5 +1,6 @@
 package com.zamotkin.extrahealthgarmin.data
 
+import com.zamotkin.extrahealthgarmin.garmin.BpUploadJournal
 import com.zamotkin.extrahealthgarmin.garmin.GarminAuthError
 import com.zamotkin.extrahealthgarmin.garmin.GarminConnectionError
 import com.zamotkin.extrahealthgarmin.garmin.GarminExistingWeighIn
@@ -109,6 +110,11 @@ class GarminRepositoryRecordsTest {
             profileException?.let { throw it }
             return ProfileHeight(profileHeightMeters, tokens)
         }
+        override suspend fun uploadBloodPressure(
+            records: List<com.zamotkin.extrahealthgarmin.omron.BloodPressureReading>,
+            tokens: GarminTokens
+        ): UploadResult =
+            throw AssertionError("uploadBloodPressure() is not under test in GarminRepositoryRecordsTest")
 
         override fun logout() =
             throw AssertionError("logout() is not under test in GarminRepositoryRecordsTest")
@@ -150,7 +156,13 @@ class GarminRepositoryRecordsTest {
     private val tokenStore = GarminTokenStore(tokenPersistence, PlainTextCrypto())
     private val journalPersistence = InMemoryJournalPersistence()
     private val journal = UploadJournal(journalPersistence)
-    private val repository = GarminRepository(remote, tokenStore, journal) { ZoneOffset.UTC }
+    private val repository = GarminRepository(
+        remote,
+        tokenStore,
+        journal,
+        zone = { ZoneOffset.UTC },
+        bpJournal = BpUploadJournal(InMemoryJournalPersistence()) // BP path not under test
+    )
 
     // ------------------------------------------------------------------ //
     //  Fixtures                                                           //
@@ -364,7 +376,8 @@ class GarminRepositoryRecordsTest {
         val repository2 = GarminRepository(
             remote2,
             GarminTokenStore(InMemoryTokenPersistence(), PlainTextCrypto()).also { it.save(TOKENS) },
-            UploadJournal(journalPersistence2)
+            UploadJournal(journalPersistence2),
+            bpJournal = BpUploadJournal(InMemoryJournalPersistence()) // BP path not under test
         )
         remote2.uploadException = GarminValidationError("Weight 900.0 kg outside plausible range (0, 500.0]")
 
@@ -498,7 +511,7 @@ class GarminRepositoryRecordsTest {
     fun `uploadNewRecords_matchesOnLocalDay_notUtcDay`() = runTest {
         tokenStore.save(TOKENS)
         // 2026-10-21T03:00Z is still 2026-10-20 evening in Denver.
-        val denver = GarminRepository(remote, tokenStore, journal) { ZoneId.of("America/Denver") }
+        val denver = GarminRepository(remote, tokenStore, journal, zone = { ZoneId.of("America/Denver") }, bpJournal = BpUploadJournal(InMemoryJournalPersistence()))
         remote.existingWeighIns = listOf(GarminExistingWeighIn(LocalDate.parse("2026-10-20"), 110.9))
 
         val outcome = denver.uploadNewRecords(listOf(weighIn(1_792_551_600L, weightKg = 110.9f)))

@@ -1,5 +1,6 @@
 package com.zamotkin.extrahealthgarmin.data
 
+import com.zamotkin.extrahealthgarmin.garmin.BpUploadJournal
 import com.zamotkin.extrahealthgarmin.garmin.GarminAuthError
 import com.zamotkin.extrahealthgarmin.garmin.GarminConnectionError
 import com.zamotkin.extrahealthgarmin.garmin.GarminTokenStore
@@ -99,6 +100,11 @@ class GarminRepositoryTest {
 
         override suspend fun fetchProfileHeightMeters(tokens: GarminTokens): ProfileHeight =
             ProfileHeight(null, tokens)
+        override suspend fun uploadBloodPressure(
+            records: List<com.zamotkin.extrahealthgarmin.omron.BloodPressureReading>,
+            tokens: GarminTokens
+        ): UploadResult =
+            throw AssertionError("uploadBloodPressure() is not under test in GarminRepositoryTest")
     }
 
     /**
@@ -172,6 +178,11 @@ class GarminRepositoryTest {
 
         override suspend fun fetchProfileHeightMeters(tokens: GarminTokens): ProfileHeight =
             ProfileHeight(null, tokens)
+        override suspend fun uploadBloodPressure(
+            records: List<com.zamotkin.extrahealthgarmin.omron.BloodPressureReading>,
+            tokens: GarminTokens
+        ): UploadResult =
+            throw AssertionError("uploadBloodPressure() is not under test in GarminRepositoryTest")
 
         override fun logout() {
             logoutCalls++
@@ -217,7 +228,12 @@ class GarminRepositoryTest {
     private val tokenStore = GarminTokenStore(tokenPersistence, PlainTextCrypto())
     private val journalPersistence = InMemoryJournalPersistence()
     private val journal = UploadJournal(journalPersistence)
-    private val repository = GarminRepository(remote, tokenStore, journal)
+    private val repository = GarminRepository(
+        remote,
+        tokenStore,
+        journal,
+        bpJournal = BpUploadJournal(InMemoryJournalPersistence()) // BP path not under test
+    )
 
     // ------------------------------------------------------------------ //
     //  Login                                                              //
@@ -268,7 +284,8 @@ class GarminRepositoryTest {
         val repository = GarminRepository(
             statefulRemote,
             GarminTokenStore(InMemoryTokenPersistence(), PlainTextCrypto()),
-            UploadJournal(InMemoryJournalPersistence())
+            UploadJournal(InMemoryJournalPersistence()),
+            bpJournal = BpUploadJournal(InMemoryJournalPersistence()) // BP path not under test
         )
 
         val first = repository.login("dmitry@example.com", "s3cret")
@@ -297,7 +314,8 @@ class GarminRepositoryTest {
         val repository = GarminRepository(
             statefulRemote,
             GarminTokenStore(InMemoryTokenPersistence(), PlainTextCrypto()),
-            UploadJournal(InMemoryJournalPersistence())
+            UploadJournal(InMemoryJournalPersistence()),
+            bpJournal = BpUploadJournal(InMemoryJournalPersistence()) // BP path not under test
         )
 
         repository.login("dmitry@example.com", "s3cret")
