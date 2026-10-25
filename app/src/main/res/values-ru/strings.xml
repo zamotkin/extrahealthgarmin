@@ -112,4 +112,13 @@
     <string name="omron_settings_delete_all_yes">Удалить</string>
     <string name="omron_settings_delete_cancel">Отмена</string>
     <string name="omron_open_readings">Показать измерения</string>
+
+    <!-- Каркас приложения (redesign v3, задача xlg.1): нижняя навигация и
+         промежуточное содержимое «Измерений» и «Настроек» -->
+    <string name="nav_home">Главная</string>
+    <string name="nav_measurements">Измерения</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="measurements_empty_title">Измерений пока нет</string>
+    <string name="measurements_empty_text">Подключите источник артериального давления в настройках, чтобы увидеть измерения здесь.</string>
+    <string name="settings_interim_text">Здесь появятся источники артериального давления и настройки Garmin и Health Connect. Пока всё находится на вкладке «Главная».</string>
 </resources>

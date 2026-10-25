@@ -113,4 +113,13 @@
     <string name="omron_settings_delete_all_yes">Delete</string>
     <string name="omron_settings_delete_cancel">Cancel</string>
     <string name="omron_open_readings">View readings</string>
+
+    <!-- App scaffold (redesign v3, task xlg.1): bottom navigation and
+         the interim Measurements/Settings content -->
+    <string name="nav_home">Home</string>
+    <string name="nav_measurements">Measurements</string>
+    <string name="nav_settings">Settings</string>
+    <string name="measurements_empty_title">No measurements yet</string>
+    <string name="measurements_empty_text">Connect a blood pressure source in Settings to see readings here.</string>
+    <string name="settings_interim_text">Blood pressure sources, Garmin and Health Connect settings will live here. For now everything is on the Home tab.</string>
 </resources>
