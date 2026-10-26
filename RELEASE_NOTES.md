@@ -72,7 +72,7 @@ New features:
   new `devices/` package holds the vendor-neutral blood-pressure source seam
   (registry + atomic JSON store + the three drivers); `health/`, `garmin/`,
   `omron/` and `data/` keep their logic
-- **Tests**: 668 unit tests (JUnit4 + Mockito + coroutines-test + Health
+- **Tests**: 673 unit tests (JUnit4 + Mockito + coroutines-test + Health
   Connect fakes + MockWebServer)
 
 ---

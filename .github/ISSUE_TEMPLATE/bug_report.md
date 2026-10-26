@@ -30,6 +30,18 @@ body:
       placeholder: "e.g. Pixel 8"
     validations:
       required: false
+  - type: dropdown
+    id: bp_source
+    attributes:
+      label: Blood-pressure source (if involved)
+      description: Which blood-pressure source type does this bug involve?
+      options:
+        - Not involved (weigh-in sync, Garmin sign-in or UI only)
+        - Omron M7 Intelli IT (proprietary BLE)
+        - Standard BLE Blood Pressure Service (0x1810) monitor
+        - Health Connect
+    validations:
+      required: false
   - type: textarea
     id: steps
     attributes:
