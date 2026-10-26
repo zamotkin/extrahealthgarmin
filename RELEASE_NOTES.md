@@ -1,5 +1,79 @@
 # Extra Health Garmin — Release Notes
 
+## Version 3.0.0 — Unified App Redesign: Compose UI, Blood-Pressure Sources
+
+### Overview
+
+Extra Health Garmin becomes one app with one interface. The whole UI is rebuilt in
+Jetpack Compose (Material 3, dynamic color, full dark theme) around three tabs —
+Home, Measurements, Settings — and blood-pressure collection turns from an
+Omron-only feature into **pluggable sources**: the Omron M7 Intelli IT over its
+proprietary BLE protocol, **any standard BLE Blood Pressure Service (0x1810)
+monitor**, and **Health Connect** itself. The weigh-in sync engine, Garmin
+authentication and upload behavior are unchanged.
+
+### What changed
+
+New features:
+
+- **Unified Material 3 interface**: single activity, bottom navigation
+  Home / Measurements / Settings, dynamic color on Android 12+ with a
+  health-brand fallback palette, complete dark theme, English and Russian
+- **Three blood-pressure source types**: Omron M7 Intelli IT (proprietary BLE
+  readout), standard BLE Blood Pressure Service 0x1810 monitors (system
+  Bluetooth bonding), and Health Connect (permission grant) — all equal
+  citizens added through Settings → Connections → Add source
+- **Selected user only**: the Omron source asks once, at pairing, which monitor
+  user slot (USER1 / USER2) is yours; the other user's readings never enter the
+  app. Sources without user attribution assign readings to the app owner
+- **History / Current sync modes** per source: History re-reads the full device
+  memory (idempotent), Current reads only new measurements since the last
+  successful read — a failed read never advances the anchor, so no reading is
+  lost
+- **One Measurements page**: day-grouped readings (systolic/diastolic/pulse,
+  upload status, source tag), a per-source **Read now** button and an
+  automatic-upload toggle; the tab appears only while at least one source is
+  connected
+- **Grouped Settings**: Connections (blood-pressure sources), Garmin Connect
+  (sign in/out and status), Health Connect (permissions, backfill) and About
+  (version, diagnostics) — Home slims down to status plus **Sync now**
+
+### Breaking changes
+
+- **Blood-pressure data starts fresh**: the local blood-pressure database moves
+  to a new schema (per-source records), applied as a **destructive migration** —
+  previously stored readings are dropped. Connect your monitor as a source and
+  read it again: the History sync mode re-imports everything the device still
+  holds, and nothing already uploaded to Garmin Connect is duplicated (the
+  upload journal is preserved)
+- The legacy Omron pairing preferences are not migrated — the monitor is
+  re-added once through the new Add source flow, re-entering the same
+  16-character pairing key it already knows (the key is stored encrypted, as
+  before)
+
+### Upgrade notes
+
+- Installs directly over 2.x (same application id, same Android 8.0+ floor)
+- **Garmin sign-in survives the upgrade** — encrypted tokens and the weigh-in
+  history/dedup journal are untouched; weigh-in sync continues without
+  re-login
+- After upgrading, add your blood-pressure monitor (or Health Connect) as a
+  source in Settings → Connections to re-enable blood-pressure syncing
+
+### Technical
+
+- **Minimum Android version**: API 26 (Android 8.0)
+- **Target Android version**: API 34
+- **Compile SDK**: 36
+- **Architecture**: MVVM, single-activity Jetpack Compose app (no XML layouts);
+  new `devices/` package holds the vendor-neutral blood-pressure source seam
+  (registry + atomic JSON store + the three drivers); `health/`, `garmin/`,
+  `omron/` and `data/` keep their logic
+- **Tests**: 668 unit tests (JUnit4 + Mockito + coroutines-test + Health
+  Connect fakes + MockWebServer)
+
+---
+
 ## Version 2.1.1 — Main Screen Fix
 
 ### Overview

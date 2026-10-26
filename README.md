@@ -1,4 +1,4 @@
-# Extra Health Garmin — Health Connect & Omron to Garmin Connect health sync
+# Extra Health Garmin — Health Connect & blood-pressure monitor to Garmin Connect sync
 
 <p align="center"><img src="docs/images/social-preview.png" alt="Extra Health Garmin" width="640"></p>
 
@@ -9,7 +9,7 @@
 [![SDK](https://img.shields.io/badge/minSdk%2026%20%C2%B7%20targetSdk%2034-blue.svg)](app/build.gradle)
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin-blue.svg)](https://kotlinlang.org)
 
-**Extra Health Garmin** syncs health data into **Garmin Connect** through two pipelines: body-composition weigh-ins from **Health Connect**, and blood-pressure readings read over Bluetooth LE directly from an **Omron M7 Intelli IT** monitor — no Omron Connect app in between. Each weigh-in is encoded as a standard FIT weight-scale file and each batch of blood-pressure readings as a FIT blood-pressure file, with the official Garmin FIT SDK, and uploaded straight to your Garmin Connect account: no manual CSV export, no middleman server, no analytics, no account data stored beyond encrypted session tokens.
+**Extra Health Garmin** syncs health data into **Garmin Connect** from the sources you already use. Body-composition weigh-ins come from **Health Connect**. Blood-pressure readings come from pluggable sources you connect in the app: an **Omron M7 Intelli IT** monitor over its own Bluetooth LE protocol, **any standard BLE Blood Pressure Service (0x1810) monitor**, or **Health Connect** itself. Every weigh-in is encoded as a standard FIT weight-scale file and every batch of blood-pressure readings as a FIT blood-pressure file with the official Garmin FIT SDK, and uploaded straight to your Garmin Connect account: no manual CSV export, no middleman server, no analytics, no account data stored beyond encrypted session tokens.
 
 Open source (MIT), no ads, no tracking — just your scale and blood-pressure data where you want it.
 
@@ -25,35 +25,54 @@ Open source (MIT), no ads, no tracking — just your scale and blood-pressure da
 - **🔁 Offline retry**: failed uploads stay retriable and ride along with the next sync pass (exponential backoff on network problems)
 - **🌍 Multilingual**: full English and Russian UI
 
-## 🩸 Blood Pressure (Omron) — direct BLE readout into Garmin Connect
+## 🩸 Blood pressure — pluggable monitor sources into Garmin Connect
 
-The second pipeline skips Health Connect entirely: blood-pressure readings are pulled over Bluetooth LE straight from an **Omron M7 Intelli IT** (HEM-7361T) monitor, stored in a local on-device database and uploaded to the same Garmin Connect account as your weigh-ins. The Omron Connect app is not involved — and cannot be used at the same time.
+Blood-pressure readings are collected from **sources** you connect under Settings → Connections → **Add source**. Three source types ship today, and the architecture treats them as equals — pick whichever matches your monitor:
 
-- **📡 Direct BLE readout**: systolic, diastolic and pulse readings are read straight from the monitor's memory over its proprietary BLE channel — no Omron Connect app, no Omron cloud, no export files
-- **🗂️ Local history**: every reading is stored on-device, tagged with its monitor user slot — re-reading the monitor never creates duplicates
-- **⬆️ Garmin upload**: new readings are encoded into a FIT blood-pressure file (official Garmin FIT SDK) and uploaded as one batch, deduplicated by timestamp and user slot so nothing is ever sent twice
-- **👥 USER1 / USER2 slots**: the monitor keeps two separate users (the last 100 readings each); the app asks which slot is yours, so two people's medical data never mixes
+- **📡 Omron M7 Intelli IT (proprietary BLE)**: systolic, diastolic and pulse readings are read straight from the monitor's memory over its proprietary BLE channel — no Omron Connect app, no Omron cloud, no export files ([docs/omron-protocol.md](docs/omron-protocol.md))
+- **🔵 Standard BLE Blood Pressure Service (0x1810)**: any monitor implementing the standard GATT Blood Pressure Service works out of the box — A&D, Beurer, Omron smart models, boso, Medisana and others ([docs/ble-1810-protocol.md](docs/ble-1810-protocol.md)); pairing goes through the Android system Bluetooth dialog
+- **❤️ Health Connect**: readings written into Health Connect by any other app or monitor ecosystem are picked up with a simple permission grant — no Bluetooth at all
+
+Every connected source then behaves the same way:
+
+- **🗂️ Local history**: readings are stored on-device in an app-private database — re-reading a device never creates duplicates (unique timestamp + user + source identity)
+- **⬆️ Garmin upload**: new readings are encoded into a FIT blood-pressure file (official Garmin FIT SDK) and uploaded as one batch, deduplicated so nothing is ever sent twice
+- **👥 Selected user only**: Omron monitors keep two separate users (USER1 / USER2) — you pick your slot once when adding the source, and the other user's medical data never enters the app; sources without user attribution assign all readings to you
+- **🔁 History / Current sync modes** (per source): **History** re-reads everything the device holds (idempotent), **Current** reads only measurements taken since the last successful read — a failed read never advances the anchor, so nothing is lost
+- **📖 One Measurements page**: day-grouped readings (systolic/diastolic/pulse, upload status, source tag) with a per-source **Read now** button and an automatic-upload toggle; the tab appears as soon as a source is connected
 - **🔐 Private by design**: readings never leave the phone except for the Garmin upload — the BLE pairing key is AES-encrypted in the Android Keystore, and the local database is excluded from cloud backups and device transfers
 
-**Pairing** — start the in-app pairing wizard, then put the monitor into pairing mode: hold the Bluetooth button for 3–5 seconds until `-P-` appears on the display and finish in the app — the monitor confirms with `[OK]`. The M7 Intelli IT pairs with **one app at a time**: if it is currently paired to Omron Connect, unpair it there first.
+**Pairing an Omron** — start the in-app add-source flow, then put the monitor into pairing mode: hold the Bluetooth button for 3–5 seconds until `-P-` appears on the display and finish in the app — the monitor confirms with `[OK]`. The M7 Intelli IT pairs with **one app at a time**: if it is currently paired to Omron Connect, unpair it there first.
+
+## 🎨 Unified Material 3 interface
+
+One activity, one design system: the whole app is Jetpack Compose with Material 3 — **dynamic color** that follows your wallpaper on Android 12+ (a health-brand palette elsewhere), a full **dark theme**, and a three-tab layout:
+
+- **Home** — weigh-in sync status and the **Sync now** button, nothing else
+- **Measurements** — the single blood-pressure page (appears once a BP source is connected)
+- **Settings** — rationally grouped: **Connections** (blood-pressure sources), **Garmin Connect** (sign in/out, status), **Health Connect** (permissions, backfill) and **About** (version, diagnostics)
 
 ## 📸 Screenshots
 
-**Main screen** — Health Connect permission status, one-tap sync and Garmin login state at a glance:
+Captured on a real phone with a connected Omron M7 Intelli IT (the phone in these captures runs the Russian UI — the app is fully English and Russian):
 
-<img src="docs/images/screenshot-main.png" width="320" alt="Extra Health Garmin main screen — Health Connect to Garmin Connect sync status with Sync now button">
+| Home (light) | Home (dark) |
+| :---: | :---: |
+| <img src="docs/images/screenshot-home-light.png" width="260" alt="Extra Health Garmin home screen — weigh-in sync status card with Garmin Connect sign-in, Health Connect access and the Sync now button, Material 3 light theme"> | <img src="docs/images/screenshot-home-dark.png" width="260" alt="Extra Health Garmin home screen in dark theme — weigh-in sync status and the Sync now button"> |
 
-**After a sync pass** — the dedup journal in action: everything already uploaded to Garmin Connect, nothing re-sent:
+| Measurements (light) | Measurements (dark) |
+| :---: | :---: |
+| <img src="docs/images/screenshot-measurements-light.png" width="260" alt="Extra Health Garmin measurements tab — blood-pressure readings grouped by day with systolic, diastolic and pulse values, upload status and the Omron source card with Read now button"> | <img src="docs/images/screenshot-measurements-dark.png" width="260" alt="Extra Health Garmin measurements tab in dark theme — day-grouped blood-pressure readings from a connected blood-pressure monitor"> |
 
-<img src="docs/images/screenshot-sync-result.png" width="320" alt="Extra Health Garmin after sync — all measurements already in Garmin Connect, nothing to upload (dedup journal)">
+| Settings | Settings with a connected source |
+| :---: | :---: |
+| <img src="docs/images/screenshot-settings-light.png" width="260" alt="Extra Health Garmin settings — grouped Connections, Garmin Connect, Health Connect and About sections with the Add source button"> | <img src="docs/images/screenshot-settings-omron-connected.png" width="260" alt="Extra Health Garmin settings with a connected Omron M7 Intelli IT blood-pressure source listed under Connections"> |
 
-**Demo** — a full manual sync pass, from tap to result (opens the video in the browser player):
+| Add source — type picker | Add source — BLE scanning |
+| :---: | :---: |
+| <img src="docs/images/screenshot-add-source-type-picker.png" width="260" alt="Add blood-pressure source — type picker with Omron M7 Intelli IT, standard BLE blood pressure monitor and Health Connect options"> | <img src="docs/images/screenshot-add-source-ble-scan.png" width="260" alt="Add blood-pressure source — Bluetooth LE scan finding blood-pressure monitors with signal strength"> |
 
-<a href="docs/images/demo-sync.mp4">
-    <img src="docs/images/screenshot-main.png" alt="Demo: one manual sync pass from tap to result" width="320">
-</a>
-
-## 🚀 Quick Start — install, link Garmin Connect, sync
+## 🚀 Quick Start — install, link Garmin Connect, connect a monitor, sync
 
 ### Installation
 
@@ -65,57 +84,65 @@ On first sync the app backfills weigh-ins from the last 30 days; after that it p
 
 ### Usage
 
-1. **Grant permissions** — on first launch tap the Health Connect status line to install/open Health Connect and grant the read permissions
+1. **Grant permissions** — in Settings → Health Connect, grant the read permissions for weigh-ins (and optionally blood pressure / hydration)
 2. **Connect Garmin** — sign in once with your Garmin email, password and (if enabled) MFA code; tokens are refreshed automatically afterwards
-3. **Sync** — tap **Sync now**, or just let the ~3-hourly background sync do it: every new weigh-in lands in Garmin Connect on its own
+3. **Add a blood-pressure source** — Settings → Connections → **Add source**: pick Omron M7 Intelli IT, a standard BLE monitor or Health Connect, and follow the pairing or grant steps
+4. **Sync** — tap **Sync now** on Home (or let the ~3-hourly background sync do it) and **Read now** on the Measurements tab; with the automatic-upload toggle on, readings reach Garmin Connect right after each read
 
 ## ⚠️ Limitations
 
 - **Unofficial API** — the upload uses Garmin's DI endpoint (the wire contract of [garth](https://github.com/matin/garth) / python-garminconnect). Garmin can change or block it at any time.
 - **garmin.com only** — Garmin Connect China (garmin.cn) accounts are not supported.
 - **Background reads** — on some providers the Health Connect background-read permission cannot be granted; the periodic sync then quietly does nothing and manual foreground sync keeps working.
-- **Omron support is model-specific** — the BLE readout is implemented for the Omron M7 Intelli IT (HEM-7361T); other Omron monitors are untested.
+- **Omron support is model-specific** — the proprietary BLE readout is implemented for the Omron M7 Intelli IT (HEM-7361T); other Omron monitors are untested (standard-BLE Omron models work through the 0x1810 source).
+- **Standard BLE monitors** — the 0x1810 source uses only the standard Blood Pressure Service profile; vendor-specific extensions are not decoded.
 
 ## 🔒 Privacy & Security
 
 - The app **only reads** Health Connect data — it never adds, changes or deletes anything there.
 - **Nothing is sent anywhere except Garmin Connect.** No analytics, no telemetry, no third parties.
 - The weight-sync pipeline stores no measurement values — only record identifiers (for dedup) and sync bookkeeping (a changes token and a timestamp), in app-private storage. Blood-pressure readings are the one deliberate exception: they live in an app-private on-device database until uploaded, are excluded from cloud backups and device transfers, and are sent nowhere except Garmin Connect.
-- The Garmin email and password exist only in memory during the login dialog and are never written to disk. The only persisted credentials are DI OAuth2 tokens, AES-encrypted with an Android Keystore key; the Omron BLE pairing key is protected the same way.
+- The Garmin email and password exist only in memory during the login dialog and are never written to disk. The only persisted credentials are DI OAuth2 tokens, AES-encrypted with an Android Keystore key; the BLE pairing key is protected the same way.
 - **Debug builds** log the HTTP exchanges of the Garmin traffic with every secret redacted (`Authorization` headers, password, MFA code, tokens → `<redacted>`); **release builds** log none of it.
 
 ## 🏗️ Architecture
 
 ```
-MVVM, single activity
-├── ui/MainViewModel            — LiveData state for the home screen
-├── MainActivity                — Health Connect status, login dialog, sync UI
-├── health/
-│   ├── HealthConnectSource     — record reads + changes tokens
-│   ├── BodyMeasurementAggregator — correlates measurements into weigh-ins
-│   ├── SyncEngine              — one sync pass: fetch → cache height → aggregate → dedup → upload
-│   ├── SyncWorker              — WorkManager ~3h periodic pass (same engine)
-│   └── SyncStateStore          — sync state JSON in filesDir
-├── omron/                      — Omron M7 BLE blood-pressure pipeline
-│   ├── protocol/               — wire protocol: session frames, unlock, record decoding
-│   ├── ble/                    — GATT transport + Keystore-encrypted pairing key
-│   └── data/                   — Room database for readings + BP sync coordinator
-├── data/GarminRepository       — upload orchestration gateway
-└── garmin/                     — DI OAuth2 auth + token store (Keystore), FIT builders,
-                                  upload client, dedup journals, redacting logger
+MVVM, single activity, Jetpack Compose (Material 3, dynamic color + dark theme)
+├── ui/                          — the whole UI: Home / Measurements / Settings
+│   ├── kit/                     — EhgTheme + shared Material 3 components
+│   ├── navigation/AppRoot       — bottom nav + app-level Garmin login dialog
+│   ├── screens/home             — weigh-in status + Sync now
+│   ├── screens/measurements     — BP page: source cards + day-grouped readings
+│   ├── screens/settings         — Connections / Garmin Connect / Health Connect / About
+│   └── screens/devices          — add-source flow, source list and detail
+├── devices/                     — pluggable blood-pressure sources
+│   ├── api/ + SourceRegistry    — vendor-neutral BpSource seam
+│   ├── store/                   — connected-sources state (atomic JSON)
+│   ├── omron/ · ble1810/ · healthconnect/  — the three source drivers
+├── health/                      — Health Connect weigh-in sync core
+│   ├── HealthConnectSource      — record reads + changes tokens
+│   ├── BodyMeasurementAggregator— correlates measurements into weigh-ins
+│   ├── SyncEngine + SyncWorker  — one sync pass, foreground or ~3-hourly background
+│   └── SyncAlerts · BloodPressureSync · HydrationSync
+├── omron/                       — Omron M7 wire protocol, BLE transport, Room store
+├── garmin/                      — DI OAuth2 auth (Keystore tokens), FIT builders,
+│                                  upload client, dedup journals, redacting logger
+└── data/GarminRepository        — upload orchestration gateway (never throws)
 ```
 
-Weight-sync state is deliberately a single JSON file in `filesDir` (no DataStore): the Health Connect changes token, the last-sync instant, the processed-record-id dedup set and the cached height. The only Room database in the app is the Omron blood-pressure store in `omron/data/`.
+Sync state is deliberately plain JSON in `filesDir` (no DataStore): weigh-in bookkeeping in `hc-sync-state.json`, connected sources in `bp-sources.json`. The only Room database in the app is the blood-pressure store, uniquely keyed by (timestamp, user slot, source) so device re-reads stay idempotent. See [CLAUDE.md](CLAUDE.md) for the full architecture notes.
 
 ## 🧰 Tech Stack
 
 - **Kotlin** on Android (minSdk 26 / targetSdk 34, compileSdk 36), single-module Gradle build
+- **Jetpack Compose + Material 3** — the entire UI, with dynamic color on Android 12+ and a full dark scheme
 - **Health Connect API** — reads seven body-composition record types via changes tokens
-- **Bluetooth LE (GATT)** — direct readout of the Omron M7 Intelli IT over its proprietary channel ([docs/omron-protocol.md](docs/omron-protocol.md))
+- **Bluetooth LE (GATT)** — the Omron M7 Intelli IT over its proprietary channel ([docs/omron-protocol.md](docs/omron-protocol.md)) and standard Blood Pressure Service monitors ([docs/ble-1810-protocol.md](docs/ble-1810-protocol.md))
 - **Official Garmin FIT SDK** — encodes weigh-ins into a `weight_scale` FIT file and blood-pressure readings into a `blood_pressure` FIT file
-- **Room** — on-device blood-pressure history with a unique (timestamp, user-slot) index
+- **Room** — on-device blood-pressure history with a unique (timestamp, user-slot, source) index
 - **WorkManager** — network-constrained ~3-hourly periodic sync with exponential backoff
-- **Android Keystore (AES)** — DI OAuth2 tokens encrypted at rest
+- **Android Keystore (AES)** — DI OAuth2 tokens and BLE pairing keys encrypted at rest
 - MVVM + LiveData, manual wiring, no DI framework — see [CLAUDE.md](CLAUDE.md) for the full architecture notes
 
 ## 🔧 Development
@@ -133,7 +160,7 @@ Weight-sync state is deliberately a single JSON file in `filesDir` (no DataStore
 # Release build (needs local app/release.keystore — gitignored)
 ./gradlew assembleRelease
 
-# Run tests (152 unit tests)
+# Run tests (668 unit tests)
 ./gradlew testDebugUnitTest
 
 # Lint check
@@ -148,12 +175,13 @@ adb logcat -s MainActivity MainViewModel SyncWorker
 
 ### Debug Garmin Auth Spike (debug builds only)
 
-Debug builds contain a hidden trigger that runs one live Garmin DI OAuth2 login and reports the result to logcat (release builds have no such trigger). Put `GARMINSPIKE_EMAIL` / `GARMINSPIKE_PASSWORD` / `GARMINSPIKE_MFA_CODE` into `~/.gradle/gradle.properties`, build, then **long-press the status text** on the main screen and watch `adb logcat -s MainActivity GarminAuth GarminHttp`. Remove the properties when done.
+Debug builds contain a hidden trigger that runs one live Garmin DI OAuth2 login and reports the result to logcat (release builds have no such trigger). Put `GARMINSPIKE_EMAIL` / `GARMINSPIKE_PASSWORD` / `GARMINSPIKE_MFA_CODE` into `~/.gradle/gradle.properties`, build, then **long-press the Garmin Connect status row** in Settings and watch `adb logcat -s MainActivity GarminAuth GarminHttp`. Remove the properties when done.
 
 ## 📚 Documentation
 
 - [Release Notes](RELEASE_NOTES.md) — version history
 - [docs/omron-protocol.md](docs/omron-protocol.md) — reverse-engineered BLE/EEPROM protocol of the Omron M7 Intelli IT
+- [docs/ble-1810-protocol.md](docs/ble-1810-protocol.md) — the standard BLE Blood Pressure Service (0x1810) as implemented by the second monitor source
 - [docs/](docs/) — historical design and setup notes
 
 ## 🤝 Contributing

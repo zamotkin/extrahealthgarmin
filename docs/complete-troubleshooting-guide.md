@@ -1,5 +1,9 @@
 # Complete Guide: Troubleshooting Garmin Connect Import Issues
 
+> **Historical note:** this guide covers the v1 CSV-converter flow that was removed in
+> v2.0.0 (the app now syncs via Health Connect and uploads FIT files directly). Kept for
+> reference only.
+
 ## Step-by-Step Troubleshooting Process
 
 ### Step 1: Initial File Verification
