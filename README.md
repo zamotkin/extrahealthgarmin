@@ -29,7 +29,7 @@ Open source (MIT), no ads, no tracking — just your scale and blood-pressure da
 
 Blood-pressure readings are collected from **sources** you connect under Settings → Connections → **Add source**. Three source types ship today, and the architecture treats them as equals — pick whichever matches your monitor:
 
-- **📡 Omron M7 Intelli IT (proprietary BLE)**: systolic, diastolic and pulse readings are read straight from the monitor's memory over its proprietary BLE channel — no Omron Connect app, no Omron cloud, no export files ([docs/omron-protocol.md](docs/omron-protocol.md))
+- **📡 Omron M7 Intelli IT (proprietary BLE)**: systolic, diastolic and pulse readings are read straight from the monitor's memory over its proprietary BLE channel — no Omron Connect app, no Omron cloud, no export files, and no pairing key to type: the app generates and remembers it automatically ([docs/omron-protocol.md](docs/omron-protocol.md))
 - **🔵 Standard BLE Blood Pressure Service (0x1810)**: any monitor implementing the standard GATT Blood Pressure Service works out of the box — A&D, Beurer, Omron smart models, boso, Medisana and others ([docs/ble-1810-protocol.md](docs/ble-1810-protocol.md)); pairing goes through the Android system Bluetooth dialog
 - **❤️ Health Connect**: readings written into Health Connect by any other app or monitor ecosystem are picked up with a simple permission grant — no Bluetooth at all
 
@@ -42,7 +42,7 @@ Every connected source then behaves the same way:
 - **📖 One Measurements page**: day-grouped readings (systolic/diastolic/pulse, upload status, source tag) with a per-source **Read now** button and an automatic-upload toggle; the tab appears as soon as a source is connected
 - **🔐 Private by design**: readings never leave the phone except for the Garmin upload — the BLE pairing key is AES-encrypted in the Android Keystore, and the local database is excluded from cloud backups and device transfers
 
-**Pairing an Omron** — start the in-app add-source flow, then put the monitor into pairing mode: hold the Bluetooth button for 3–5 seconds until `-P-` appears on the display and finish in the app — the monitor confirms with `[OK]`. The M7 Intelli IT pairs with **one app at a time**: if it is currently paired to Omron Connect, unpair it there first.
+**Pairing an Omron** — start the in-app add-source flow, then put the monitor into pairing mode: hold the Bluetooth button for 3–5 seconds until `-P-` appears on the display and finish in the app — the monitor confirms with `[OK]`. No key is typed: the app manages the pairing key automatically (a manual-entry field remains under an advanced option). The M7 Intelli IT pairs with **one app at a time**: if it is currently paired to Omron Connect, unpair it there first.
 
 ## 🎨 Unified Material 3 interface
 
@@ -62,7 +62,7 @@ Captured on a real phone with a connected Omron M7 Intelli IT (the phone in thes
 
 | Measurements (light) | Measurements (dark) |
 | :---: | :---: |
-| <img src="docs/images/screenshot-measurements-light.png" width="260" alt="Extra Health Garmin measurements tab — blood-pressure readings grouped by day with systolic, diastolic and pulse values, upload status and the Omron source card with Read now button"> | <img src="docs/images/screenshot-measurements-dark.png" width="260" alt="Extra Health Garmin measurements tab in dark theme — day-grouped blood-pressure readings from a connected blood-pressure monitor"> |
+| <img src="docs/images/screenshot-measurements-light.png" width="260" alt="Extra Health Garmin measurements tab — the connected Omron source card with device user, autosync switch and Read now button; empty state before the first read"> | <img src="docs/images/screenshot-measurements-dark.png" width="260" alt="Extra Health Garmin measurements tab in dark theme — the Omron source card with Read now and the empty readings state"> |
 
 | Settings | Settings with a connected source |
 | :---: | :---: |

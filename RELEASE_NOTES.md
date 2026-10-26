@@ -26,6 +26,9 @@ New features:
 - **Selected user only**: the Omron source asks once, at pairing, which monitor
   user slot (USER1 / USER2) is yours; the other user's readings never enter the
   app. Sources without user attribution assign readings to the app owner
+- **No manual pairing key**: the Omron add-source flow is instructions-only —
+  the app generates and remembers the 16-byte pairing key (manual entry
+  remains an advanced fallback)
 - **History / Current sync modes** per source: History re-reads the full device
   memory (idempotent), Current reads only new measurements since the last
   successful read — a failed read never advances the anchor, so no reading is
@@ -47,9 +50,9 @@ New features:
   holds, and nothing already uploaded to Garmin Connect is duplicated (the
   upload journal is preserved)
 - The legacy Omron pairing preferences are not migrated — the monitor is
-  re-added once through the new Add source flow, re-entering the same
-  16-character pairing key it already knows (the key is stored encrypted, as
-  before)
+  re-added once through the new Add source flow; no key entry is needed (the
+  app generates and remembers the pairing key; a manual field remains an
+  advanced option)
 
 ### Upgrade notes
 
