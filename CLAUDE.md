@@ -171,7 +171,6 @@ database in `omron/data/`.
 
 - **fetch** — live content of a specific URL: web docs, changelogs, raw HTML, localhost. Not for library docs (that's context7) and not for "where to read" lookups (web search).
 - **context7** — BEFORE writing code against a library/framework (AndroidX, Lifecycle, Coroutines, WorkManager, Health Connect, Gradle): exact signatures, configuration, migrations. Even if you "remember the API" — the model's data may be stale. Order: `resolve-library-id`, then `query-docs`; one query — one concept. Not for business logic or general Kotlin concepts.
-- **serena** — semantic navigation and edits: `find_symbol`, `find_referencing_symbols`, `replace_symbol_body` instead of grep+sed wherever exact symbol boundaries matter. File overview — `get_symbols_overview` rather than reading the whole file; at the start of a coding task — `initial_instructions`.
 - **claude-mem** — memory across sessions. Before design/debugging/review — `mem_search`: don't re-solve what's solved. Durable lessons — `save_memory` (after a duplicate search); current to-do lists — `work_state_write`.
 - **knowledge/** — Open Knowledge Format v0.2 knowledge base; read before design work
 
