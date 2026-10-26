@@ -34,6 +34,11 @@ enum class SyncMode { HISTORY, CURRENT }
  *   [requiresPairingKey] source accepts (the M7: 16); null for keyless
  *   types - the add-source flow validates the typed key against this
  *   capability, never against a vendor constant
+ * @property autoPairingKey whether the app supplies the
+ *   [requiresPairingKey] key itself, so the user types nothing (the M7:
+ *   a once-generated random key, docs/omron-protocol.md §3.3/§12, task
+ *   xlg.17). The device still needs a key at unlock - only its origin
+ *   changes; manual entry stays reachable as an advanced fallback
  * @property userSlotCount how many device user slots a
  *   [UserAttribution.SLOTS] source picks from (the M7 carries two; slots
  *   are 1-based). Ignored for [UserAttribution.NONE] sources.
@@ -43,6 +48,7 @@ data class SourceCapabilities(
     val supportedSyncModes: Set<SyncMode>,
     val requiresPairingKey: Boolean,
     val pairingKeyBytes: Int? = null,
+    val autoPairingKey: Boolean = false,
     val userSlotCount: Int = 2
 ) {
 

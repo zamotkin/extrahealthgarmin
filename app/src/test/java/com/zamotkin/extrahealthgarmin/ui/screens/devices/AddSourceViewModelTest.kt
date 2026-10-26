@@ -76,13 +76,15 @@ class AddSourceViewModelTest {
         override val typeId: String,
         private val requiresKey: Boolean,
         private val keyBytes: Int = 16,
+        private val autoKey: Boolean = false,
     ) : BleBpSourceType {
         override val displayNameRes: Int get() = R.string.bp_source_type_omron_ble
         override val capabilities: SourceCapabilities = SourceCapabilities(
             userAttribution = if (requiresKey) UserAttribution.SLOTS else UserAttribution.NONE,
             supportedSyncModes = setOf(SyncMode.HISTORY, SyncMode.CURRENT),
             requiresPairingKey = requiresKey,
-            pairingKeyBytes = if (requiresKey) keyBytes else null
+            pairingKeyBytes = if (requiresKey) keyBytes else null,
+            autoPairingKey = requiresKey && autoKey
         )
 
         override fun createFromDevice(context: Context, device: DiscoveredBleDevice): BpSource =
@@ -161,9 +163,10 @@ class AddSourceViewModelTest {
         missingBlePermissions: () -> List<String>,
         hcBpPermissionGranted: suspend () -> Boolean,
         storePairingKey: (typeId: String, key: ByteArray) -> String,
+        autoPairingKeyRef: (typeId: String) -> String,
         clock: () -> Long,
     ) : AddSourceViewModel(
-        registry, store, scannerFor, missingBlePermissions, hcBpPermissionGranted, storePairingKey, clock
+        registry, store, scannerFor, missingBlePermissions, hcBpPermissionGranted, storePairingKey, autoPairingKeyRef, clock
     ) {
         fun simulateCleared() = onCleared()
     }
@@ -171,6 +174,7 @@ class AddSourceViewModelTest {
     // ---- fixtures --------------------------------------------------- //
 
     private val keyBleType = FakeBleType("key-ble", requiresKey = true)
+    private val autoKeyType = FakeBleType("auto-ble", requiresKey = true, autoKey = true)
     private val keylessBleType = FakeBleType("keyless-ble", requiresKey = false)
     private val hcType = FakeSingletonType("hc")
     private val scanner = FakeScanner()
@@ -179,10 +183,12 @@ class AddSourceViewModelTest {
     private var missingPermissions: List<String> = emptyList()
     private var hcGranted: Boolean = false
     private val storedKeys = mutableListOf<Pair<String, ByteArray>>()
+    private val autoKeyRefs = mutableListOf<String>()
+    private var autoKeyRefFails = false
     private var nowMs = 1_000_000L
 
     private fun newViewModel(
-        types: List<BpSourceType> = listOf(keyBleType, keylessBleType, hcType),
+        types: List<BpSourceType> = listOf(keyBleType, autoKeyType, keylessBleType, hcType),
     ): TestableViewModel = TestableViewModel(
         registry = SourceRegistry(types),
         store = store,
@@ -192,6 +198,11 @@ class AddSourceViewModelTest {
         storePairingKey = { typeId, key ->
             storedKeys += typeId to key
             "stored-key-ref"
+        },
+        autoPairingKeyRef = { typeId ->
+            if (autoKeyRefFails) throw IllegalStateException("key store died")
+            autoKeyRefs += typeId
+            "auto-key-ref"
         },
         clock = { nowMs },
     )
@@ -230,14 +241,18 @@ class AddSourceViewModelTest {
     fun `type picker lists the registry types with their capabilities`() {
         val vm = newViewModel()
         val options = (vm.uiState.value as AddSourceUiState.TypePicker).options
-        assertEquals(listOf("key-ble", "keyless-ble", "hc"), options.map { it.typeId })
+        assertEquals(listOf("key-ble", "auto-ble", "keyless-ble", "hc"), options.map { it.typeId })
         val key = options[0]
         assertTrue(key.isBle)
         assertTrue(key.requiresPairingKey)
+        assertFalse(key.autoPairingKey) // a key type without automation keeps the manual field
         assertEquals(16, key.pairingKeyBytes) // the type's capability, not a constant
         assertTrue(key.supportsUserSlots)
         assertEquals(setOf(SyncMode.HISTORY, SyncMode.CURRENT), key.supportedSyncModes)
-        val hc = options[2]
+        val auto = options[1]
+        assertTrue(auto.requiresPairingKey) // the device still needs a key at unlock...
+        assertTrue(auto.autoPairingKey)     // ...the app just supplies it (task xlg.17)
+        val hc = options[3]
         assertFalse(hc.isBle)
         assertFalse(hc.requiresPairingKey)
         assertNull(hc.pairingKeyBytes) // keyless type
@@ -615,6 +630,72 @@ class AddSourceViewModelTest {
         assertFalse(state.slotError)
     }
 
+    // ---- automatic pairing key (task xlg.17) ------------------------ //
+
+    @Test
+    fun `auto key type saves without any key input`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm, "auto-ble")
+        vm.selectUserSlot(1)
+        vm.saveSource()
+        val done = vm.uiState.value as AddSourceUiState.Done
+        assertEquals("auto-ble", done.source.sourceTypeId)
+        assertEquals("auto-key-ref", done.source.pairingKeyRef)
+        assertEquals(1, done.source.userSlot)
+        assertEquals(listOf("auto-ble"), autoKeyRefs)
+        assertTrue(storedKeys.isEmpty()) // nothing typed - no manual store call
+    }
+
+    @Test
+    fun `auto key save still demands the user slot pick`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm, "auto-ble")
+        vm.saveSource()
+        val state = vm.uiState.value as AddSourceUiState.Pairing
+        assertTrue(state.slotError)
+        assertTrue(autoKeyRefs.isEmpty()) // no key generated before the pick
+        assertTrue(store.added.isEmpty())
+    }
+
+    @Test
+    fun `auto key seam failure lands in an error state`() {
+        autoKeyRefFails = true
+        val vm = newViewModel()
+        inPairingWithDevice(vm, "auto-ble")
+        vm.selectUserSlot(1)
+        vm.saveSource()
+        val state = vm.uiState.value as AddSourceUiState.Error
+        assertEquals(R.string.add_source_save_error, state.messageRes)
+        assertTrue(store.added.isEmpty())
+    }
+
+    @Test
+    fun `manual key entry still overrides the automatic path`() {
+        // The advanced fallback (collapsed in the UI): a manually entered
+        // key is stored through the manual seam and no key is generated.
+        val vm = newViewModel()
+        inPairingWithDevice(vm, "auto-ble")
+        vm.selectUserSlot(2)
+        vm.submitPairingKey("1234567890123456")
+        val done = vm.uiState.value as AddSourceUiState.Done
+        assertEquals("stored-key-ref", done.source.pairingKeyRef)
+        assertEquals(1, storedKeys.size)
+        assertEquals("auto-ble", storedKeys[0].first)
+        assertArrayEquals("1234567890123456".toByteArray(), storedKeys[0].second)
+        assertTrue(autoKeyRefs.isEmpty())
+    }
+
+    @Test
+    fun `wrong-length manual key is rejected on the auto path too`() {
+        val vm = newViewModel()
+        inPairingWithDevice(vm, "auto-ble")
+        vm.selectUserSlot(1)
+        vm.submitPairingKey("12345")
+        assertTrue((vm.uiState.value as AddSourceUiState.Pairing).keyError)
+        assertTrue(autoKeyRefs.isEmpty())
+        assertTrue(store.added.isEmpty())
+    }
+
     // ---- pair + save (Health Connect) ------------------------------- //
 
     @Test
@@ -683,7 +764,7 @@ class AddSourceViewModelTest {
         val session = startedScan(vm)
         vm.reset()
         val state = vm.uiState.value as AddSourceUiState.TypePicker
-        assertEquals(3, state.options.size)
+        assertEquals(4, state.options.size)
         assertTrue(session.stopped)
     }
 

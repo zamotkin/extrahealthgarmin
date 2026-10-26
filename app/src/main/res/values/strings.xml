@@ -130,7 +130,12 @@
     <string name="add_source_scan_error">Scanning failed</string>
     <string name="add_source_pair_title">Connect %1$s</string>
     <string name="add_source_key_label">Pairing key</string>
-    <string name="add_source_key_hint">Enter exactly 16 characters. The app remembers this key and uses it to unlock the monitor.</string>
+    <!-- Task xlg.17: the Omron pair step asks for nothing (the app generates its own key);
+         manual entry survives as the collapsed advanced fallback below. -->
+    <string name="add_source_auto_key_hint">Nothing to enter — the app creates its own pairing key and unlocks the monitor on the first read. Keep the monitor awake and close while connecting.</string>
+    <string name="add_source_key_advanced">Enter pairing key manually</string>
+    <string name="add_source_key_use_manual">Use this key</string>
+    <string name="add_source_key_hint">Advanced: only needed when the monitor was paired to another app that set its own key. Enter exactly 16 characters — the app will use this key instead of its own.</string>
     <string name="add_source_key_error">The pairing key must be exactly 16 characters.</string>
     <!-- One-time device user pick (task tefal2garmin-app-redesign-v3-xlg.4):
          rendered only for source types with user slots (Omron). -->

@@ -46,7 +46,10 @@ class SourceRegistryTest {
                 userAttribution = UserAttribution.SLOTS,
                 supportedSyncModes = setOf(SyncMode.HISTORY, SyncMode.CURRENT),
                 requiresPairingKey = true,
-                pairingKeyBytes = 16
+                pairingKeyBytes = 16,
+                // Task xlg.17: the M7 key is app-supplied (generated once),
+                // so the add-source flow asks for no key input.
+                autoPairingKey = true
             ),
             type?.capabilities
         )

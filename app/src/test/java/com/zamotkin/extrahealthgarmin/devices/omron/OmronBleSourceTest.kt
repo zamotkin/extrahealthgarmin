@@ -59,6 +59,9 @@ class OmronBleSourceTest {
         assertEquals(UserAttribution.SLOTS, capabilities.userAttribution)
         assertEquals(setOf(SyncMode.HISTORY, SyncMode.CURRENT), capabilities.supportedSyncModes)
         assertTrue(capabilities.requiresPairingKey)
+        // Task xlg.17: the M7 key is supplied by the app (generated per
+        // docs/omron-protocol.md §3.3/§12), so the flow asks for no input.
+        assertTrue(capabilities.autoPairingKey)
         // The M7 key length travels with the capability (task xlg.14), so
         // the add-source flow validates against it without importing the
         // Omron protocol constant.

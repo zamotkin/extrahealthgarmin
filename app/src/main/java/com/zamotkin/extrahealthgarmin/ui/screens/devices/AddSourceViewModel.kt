@@ -42,6 +42,10 @@ import java.util.UUID
  * @property pairingKeyBytes the exact pairing-key length the type accepts,
  *   straight from its capabilities; null for keyless types (task xlg.14:
  *   the length rides with the capability, no vendor constant here)
+ * @property autoPairingKey whether the app supplies the pairing key itself
+ *   (task xlg.17): the pair step asks for nothing and Save obtains the
+ *   key through the flow's auto-key seam; manual entry stays reachable as
+ *   an advanced fallback (submitPairingKey)
  */
 data class SourceTypeOption(
     val typeId: String,
@@ -49,6 +53,7 @@ data class SourceTypeOption(
     val isBle: Boolean,
     val requiresPairingKey: Boolean,
     val pairingKeyBytes: Int?,
+    val autoPairingKey: Boolean,
     val supportsUserSlots: Boolean,
     val userSlots: List<Int>,
     val supportedSyncModes: Set<SyncMode>,
@@ -131,7 +136,8 @@ sealed interface AddSourceUiState {
  * with fakes: scanning runs through [BleSourceScanner] (never inside a
  * Composable), persistence through [ConnectedSourceStore], the pairing key
  * through [storePairingKey] (which owns HOW keys are stored - the flow
- * only validates the length), permissions through
+ * only validates the length), the app-supplied key of auto-key types
+ * (task xlg.17) through [autoPairingKeyRef], permissions through
  * [missingBlePermissions] and [hcBpPermissionGranted].
  *
  * Scan lifecycle: at most one live [BleSourceScanner.ScanSession]; late
@@ -148,6 +154,7 @@ open class AddSourceViewModel(
     private val missingBlePermissions: () -> List<String>,
     private val hcBpPermissionGranted: suspend () -> Boolean,
     private val storePairingKey: (typeId: String, key: ByteArray) -> String,
+    private val autoPairingKeyRef: (typeId: String) -> String,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
@@ -392,10 +399,32 @@ open class AddSourceViewModel(
         }
     }
 
-    /** Saves the source for types whose pair step needs no key. */
+    /**
+     * Saves the source with no key input: keyless types (standard 0x1810)
+     * persist directly; auto-key types (task xlg.17, the Omron flow's
+     * happy path) first obtain the app-supplied key through the seam -
+     * one random 16-byte key per install, stored by the key store, so the
+     * first read unlocks the monitor with it. Key types without
+     * automation still demand [submitPairingKey].
+     */
     fun saveSource() {
         val state = _uiState.value as? AddSourceUiState.Pairing ?: return
-        if (state.option.requiresPairingKey) return
+        if (state.option.requiresPairingKey) {
+            if (!state.option.autoPairingKey) return
+            if (missingUserSlot(state)) return
+            val keyRef = try {
+                autoPairingKeyRef(state.option.typeId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Automatic pairing key failed", e)
+                _uiState.value = AddSourceUiState.Error(
+                    messageRes = R.string.add_source_save_error,
+                    detail = e.message
+                )
+                return
+            }
+            persist(state.option, state.device, keyRef, state.selectedUserSlot)
+            return
+        }
         if (missingUserSlot(state)) return
         persist(state.option, state.device, null, state.selectedUserSlot)
     }
@@ -476,6 +505,7 @@ open class AddSourceViewModel(
         isBle = type is BleBpSourceType,
         requiresPairingKey = type.capabilities.requiresPairingKey,
         pairingKeyBytes = type.capabilities.pairingKeyBytes,
+        autoPairingKey = type.capabilities.autoPairingKey,
         supportsUserSlots = type.capabilities.userAttribution == UserAttribution.SLOTS,
         userSlots = type.capabilities.userSlots,
         supportedSyncModes = type.capabilities.supportedSyncModes,
@@ -520,6 +550,12 @@ class AddSourceViewModelFactory(
                     // omron-ble is the only key-requiring type today; a
                     // future second one dispatches on the type id here.
                     OmronBleSourceType.storePairingKey(application, key)
+                },
+                autoPairingKeyRef = { _ ->
+                    // Task xlg.17: generates the key on first use (the
+                    // unregistered monitor accepts any 16-byte key) and
+                    // returns the stored-key ref for the saved source.
+                    OmronBleSourceType.obtainAutoPairingKeyRef(application)
                 },
             )
         }

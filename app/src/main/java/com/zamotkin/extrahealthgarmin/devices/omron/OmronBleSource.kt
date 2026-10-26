@@ -95,6 +95,10 @@ class OmronBleSource(
             // The vendor constant travels with the capability, so the
             // add-source flow never needs the Omron protocol import.
             pairingKeyBytes = OmronProtocol.PAIRING_KEY_BYTES,
+            // Task xlg.17: the key is app-supplied, not user-typed - an
+            // unregistered M7 accepts any 16-byte key (spec §3.3), and no
+            // serial derivation exists to compute one from (spec §12).
+            autoPairingKey = true,
             userSlotCount = 2
         )
     }
@@ -139,6 +143,26 @@ object OmronBleSourceType : BleBpSourceType {
     fun storePairingKey(context: Context, key: ByteArray): String {
         FileKeyPersistence(File(context.filesDir, PAIRING_KEY_FILE_NAME))
             .save(KeystoreAesPairingKeyCrypto().encrypt(key))
+        return PAIRING_KEY_FILE_NAME
+    }
+
+    /**
+     * Automatic pairing-key path (task tefal2garmin-app-redesign-v3-xlg.17):
+     * ensures the key exists through [OmronKeyStore.getOrCreate] - the
+     * FIRST call generates one random 16-byte key and persists it
+     * encrypted; later calls return it unchanged, so a manual key stored
+     * by [storePairingKey] is kept, never clobbered. Valid for the
+     * unregistered M7, which accepts any 16-byte key at unlock (spec §3.3
+     * [CAPTURE]; no serial derivation exists, spec §12). Returns the same
+     * stored-key identifier [storePairingKey] returns, for
+     * ConnectedSource.pairingKeyRef.
+     */
+    fun obtainAutoPairingKeyRef(context: Context): String {
+        val keyStore = OmronKeyStore(
+            crypto = KeystoreAesPairingKeyCrypto(),
+            persistence = FileKeyPersistence(File(context.filesDir, PAIRING_KEY_FILE_NAME))
+        )
+        keyStore.getOrCreate()
         return PAIRING_KEY_FILE_NAME
     }
 

@@ -22,6 +22,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
@@ -300,6 +301,50 @@ private fun PairingContent(
         Spacer(modifier = Modifier.height(16.dp))
     }
     when {
+        state.option.requiresPairingKey && state.option.autoPairingKey -> {
+            // Task xlg.17: the app supplies the key (generated once per
+            // install) - instructions only, mirroring the 0x1810 bonding
+            // step style; the user enters nothing.
+            Text(
+                text = stringResource(R.string.add_source_auto_key_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            EhgButton(
+                text = stringResource(R.string.add_source_save),
+                onClick = onSave,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            // Manual entry survives as a collapsed advanced fallback - for
+            // a monitor registered by another app with its own key.
+            var advancedKeyOpen by rememberSaveable { mutableStateOf(false) }
+            if (advancedKeyOpen) {
+                Text(
+                    text = stringResource(R.string.add_source_key_hint),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                ManualKeyFields(
+                    key = key,
+                    onKeyChanged = onKeyChanged,
+                    keyError = state.keyError,
+                    submitLabel = stringResource(R.string.add_source_key_use_manual),
+                    onSubmit = onSubmitKey,
+                    tonalSubmit = true,
+                )
+            } else {
+                TextButton(
+                    onClick = { advancedKeyOpen = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = stringResource(R.string.add_source_key_advanced))
+                }
+            }
+        }
+
         state.option.requiresPairingKey -> {
             Text(
                 text = stringResource(R.string.add_source_key_hint),
@@ -307,27 +352,13 @@ private fun PairingContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = key,
-                onValueChange = onKeyChanged,
-                label = { Text(text = stringResource(R.string.add_source_key_label)) },
-                isError = state.keyError,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (state.keyError) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.add_source_key_error),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            EhgButton(
-                text = stringResource(R.string.add_source_save),
-                onClick = onSubmitKey,
-                modifier = Modifier.fillMaxWidth(),
+            ManualKeyFields(
+                key = key,
+                onKeyChanged = onKeyChanged,
+                keyError = state.keyError,
+                submitLabel = stringResource(R.string.add_source_save),
+                onSubmit = onSubmitKey,
+                tonalSubmit = false,
             )
         }
 
@@ -378,6 +409,46 @@ private fun PairingContent(
             }
         }
     }
+}
+
+/**
+ * The manual pairing-key entry (task xlg.17): the text field with its
+ * length-error marker and the submit button. Rendered as the PRIMARY step
+ * for key types without automation and as the revealed ADVANCED fallback
+ * inside the auto-key step - only [submitLabel]/[tonalSubmit] differ.
+ */
+@Composable
+private fun ManualKeyFields(
+    key: String,
+    onKeyChanged: (String) -> Unit,
+    keyError: Boolean,
+    submitLabel: String,
+    onSubmit: () -> Unit,
+    tonalSubmit: Boolean,
+) {
+    OutlinedTextField(
+        value = key,
+        onValueChange = onKeyChanged,
+        label = { Text(text = stringResource(R.string.add_source_key_label)) },
+        isError = keyError,
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (keyError) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.add_source_key_error),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+    EhgButton(
+        text = submitLabel,
+        onClick = onSubmit,
+        tonal = tonalSubmit,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
