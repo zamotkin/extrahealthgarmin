@@ -497,4 +497,63 @@ class SettingsViewModelTest {
 
         assertEquals(listOf(Duration.ofDays(7)), backfillWindows)
     }
+
+    // ------------------------------------------------------------------ //
+    //  Lifecycle                                                         //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `clear detaches the shared-state observer - no further group emissions`() {
+        // The class KDoc's promised test (added in task xlg.8, the xlg.7
+        // review): the shared MainViewModel outlives this screen's entry,
+        // so onCleared must detach the observeForever observer - a later
+        // shared emission reaches neither group.
+        loginStatus = LoginStatus.Success
+        mainViewModel.loginToGarmin("user@example.com", "s3cret")
+        pumpUntil { it.garminConnected }
+        val vm = ClosableViewModel(
+            mainViewModel,
+            store,
+            SourceRegistry(listOf(OmronBleSourceType, HealthConnectBpSourceType)),
+            repository,
+            { weighInJournalCount },
+            { bpJournalCount },
+            "3.0.0-test",
+        )
+        assertTrue(vm.garmin.value!!.signedIn)
+
+        vm.simulateCleared()
+
+        // A shared emission after the clear (sign-out of the still-alive
+        // MainViewModel) must not emit new group state into the dead screen.
+        mainViewModel.signOut()
+        pump()
+
+        assertFalse(mainViewModel.uiState.value!!.garminConnected)
+        assertTrue(
+            "the detached observer emits nothing after onCleared",
+            vm.garmin.value!!.signedIn
+        )
+    }
+
+    /** Exposes the protected onCleared so the test can simulate teardown. */
+    private class ClosableViewModel(
+        mainViewModel: MainViewModel,
+        store: ConnectedSourceStore,
+        registry: SourceRegistry,
+        bpRepository: OmronBpRepository,
+        weighInJournalCount: () -> Int,
+        bpJournalCount: () -> Int,
+        appVersion: String,
+    ) : SettingsViewModel(
+        mainViewModel,
+        store,
+        registry,
+        bpRepository,
+        weighInJournalCount,
+        bpJournalCount,
+        appVersion,
+    ) {
+        fun simulateCleared() = onCleared()
+    }
 }

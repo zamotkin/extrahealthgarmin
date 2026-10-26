@@ -286,6 +286,25 @@ class GarminRepositoryTest {
     }
 
     @Test
+    fun `login after signOut persists the new session`() = runTest {
+        // The sign-out gate (xlg.8, the xlg.7 review) suppresses only the
+        // token saves of in-flight upload passes; a fresh successful login
+        // must lift it - its tokens ARE the new session.
+        remote.loginResult = LoginResult.Success(TOKENS)
+        repository.login("dmitry@example.com", "s3cret")
+        repository.signOut()
+        assertNull(tokenStore.load())
+
+        val fresh = GarminTokens("jwt-fresh", "rt-fresh", TOKENS.diClientId)
+        remote.loginResult = LoginResult.Success(fresh)
+        val status = repository.login("dmitry@example.com", "s3cret")
+
+        assertTrue(status is LoginStatus.Success)
+        assertEquals("a fresh login's tokens must persist after a sign-out", fresh, tokenStore.load())
+        assertTrue(repository.hasStoredToken())
+    }
+
+    @Test
     fun `login_needs_mfa_then_resume_with_code`() = runTest {
         val mfaState = MfaClientState(mfaMethod = "EMAIL")
         remote.loginResult = LoginResult.NeedsMfa(mfaState)

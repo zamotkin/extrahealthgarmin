@@ -17,6 +17,7 @@ import com.zamotkin.extrahealthgarmin.devices.SourceReadUseCase
 import com.zamotkin.extrahealthgarmin.devices.SourceRegistry
 import com.zamotkin.extrahealthgarmin.devices.api.BpReading
 import com.zamotkin.extrahealthgarmin.devices.api.BpSourceType
+import com.zamotkin.extrahealthgarmin.devices.api.SingletonBpSourceType
 import com.zamotkin.extrahealthgarmin.devices.api.SourceCounters
 import com.zamotkin.extrahealthgarmin.devices.api.SourceReadResult
 import com.zamotkin.extrahealthgarmin.devices.store.ConnectedSource
@@ -218,7 +219,7 @@ open class MeasurementsViewModel(
                     // Removed while the tap was in flight: nothing to read.
                     setStatus(sourceId, ReadNowState.Idle)
                 } else {
-                    applyReadOutcome(sourceId, readSource(source))
+                    applyReadOutcome(source, readSource(source))
                 }
             } catch (e: CancellationException) {
                 setStatus(sourceId, ReadNowState.Idle)
@@ -252,13 +253,14 @@ open class MeasurementsViewModel(
      * an upload problem outranks the read success (the readings are
      * already saved and stay retriable - the status says what happened).
      */
-    private suspend fun applyReadOutcome(sourceId: String, outcome: SourceReadOutcome) {
+    private suspend fun applyReadOutcome(source: ConnectedSource, outcome: SourceReadOutcome) {
+        val sourceId = source.id
         val result = outcome.result
         if (result !is SourceReadResult.Success) {
             setStatus(
                 sourceId,
                 ReadNowState.Finished(
-                    messageRes = readFailureRes(result),
+                    messageRes = readFailureRes(source.sourceTypeId, result),
                     detail = readFailureDetail(result),
                     isError = true
                 )
@@ -303,14 +305,27 @@ open class MeasurementsViewModel(
     /**
      * The read-failure headline per [SourceReadResult] variant - the
      * standard-BLE wordings task xlg.9 wrote for exactly this mapping; the
-     * raw reason rides along as the detail line. [SourceReadResult.Success]
-     * never reaches here (the caller handles it); it maps to the generic
-     * connect failure only to keep the when exhaustive.
+     * raw reason rides along as the detail line. ConnectionRequired
+     * discriminates by the source's type shape (task xlg.8, the xlg.6 review
+     * carry-over): BLE sources keep the bonding guidance, but a singleton
+     * source's connect step IS the permission grant, so Health Connect's
+     * revoked access gets the access wording - never monitor-pairing
+     * guidance. [SourceReadResult.Success] never reaches here (the caller
+     * handles it); it maps to the generic connect failure only to keep the
+     * when exhaustive.
      */
-    private fun readFailureRes(result: SourceReadResult): Int = when (result) {
-        is SourceReadResult.ConnectionRequired -> R.string.ble1810_error_bonding
+    private fun readFailureRes(sourceTypeId: String, result: SourceReadResult): Int = when (result) {
+        is SourceReadResult.ConnectionRequired ->
+            if (registry.type(sourceTypeId) is SingletonBpSourceType) {
+                R.string.measurement_read_failed_hc_access
+            } else {
+                R.string.ble1810_error_bonding
+            }
+
         is SourceReadResult.Timeout -> R.string.ble1810_error_timeout
+
         is SourceReadResult.Disconnected -> R.string.ble1810_error_disconnected
+
         is SourceReadResult.Failed,
         is SourceReadResult.Success -> R.string.ble1810_error_connect
     }

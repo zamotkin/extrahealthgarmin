@@ -29,7 +29,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
@@ -74,6 +76,11 @@ fun AddSourceFlowScreen(
 
     var pairingKey by rememberSaveable { mutableStateOf("") }
 
+    // Haptic confirm on the save action (task xlg.8): every variant of the
+    // flow's "Save" (pairing key submit, keyless BLE, granted Health
+    // Connect) goes through these two wrappers.
+    val haptics = LocalHapticFeedback.current
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -102,8 +109,14 @@ fun AddSourceFlowScreen(
                     if (s.keyError) viewModel.clearKeyError()
                 },
                 onSelectSlot = viewModel::selectUserSlot,
-                onSubmitKey = { viewModel.submitPairingKey(pairingKey) },
-                onSave = viewModel::saveSource,
+                onSubmitKey = {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    viewModel.submitPairingKey(pairingKey)
+                },
+                onSave = {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    viewModel.saveSource()
+                },
                 onGrantHc = {
                     try {
                         hcPermissionLauncher.launch(viewModel.hcPermissionsToRequest())

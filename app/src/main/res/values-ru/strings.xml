@@ -3,10 +3,7 @@
     <string name="app_name">Extra Health Garmin</string>
 
     <!-- Generic -->
-    <string name="label_try_again">Попробовать снова</string>
     <string name="dialog_ok">OK</string>
-    <string name="error_occurred">Произошла ошибка</string>
-    <string name="please_try_again">Пожалуйста, попробуйте еще раз</string>
 
     <!-- Health Connect home screen (task 2b) -->
     <string name="hc_status_checking">Проверяем Health Connect…</string>
@@ -75,7 +72,14 @@
     <string name="measurement_read_success_none">Новых измерений нет</string>
     <string name="measurement_read_pipeline_summary">Загружено в Garmin: %1$d · Ожидают пульса часов: %2$d · Отброшено: %3$d</string>
     <string name="measurement_read_store_failed">Не удалось сохранить измерения — они будут прочитаны снова при следующем чтении</string>
-    <string name="measurement_read_failed_unexpected">Непредвиденная ошибка: %1$s</string>
+    <!-- Исходная причина сбоя идёт строкой подробностей, поэтому в заголовке
+         нет заполнителя (задача xlg.8: вывод без аргумента форматирования
+         показывал литеральный %1$s). -->
+    <string name="measurement_read_failed_unexpected">Непредвиденная ошибка</string>
+    <!-- ConnectionRequired одиночного источника (правка из ревью xlg.8):
+         доступ Health Connect и есть его шаг подключения, поэтому отзыв
+         доступа не должен звучать как инструкция по сопряжению (ble1810). -->
+    <string name="measurement_read_failed_hc_access">Доступ к давлению в Health Connect не выдан — разрешите его в приложении Health Connect и прочитайте снова</string>
     <string name="measurement_upload_partial">Часть измерений не загрузилась в Garmin — они сохранены и повторят загрузку при следующем чтении</string>
     <string name="measurement_upload_retryable">Загрузка в Garmin не удалась — измерения сохранены и повторят загрузку при следующем чтении</string>
     <string name="measurement_autosync">Загружать в Garmin автоматически</string>
@@ -217,13 +221,9 @@
     <string name="settings_delete_failed">Не удалось удалить измерения</string>
     <!-- Standard BLE Blood Pressure Service driver (devices/ble1810, task
          tefal2garmin-app-redesign-v3-xlg.9). Display name referenced by
-         Ble1810Source.DISPLAY_NAME_RES; the steps and errors are rendered by
-         the add-source flow / read UI (task xlg.3, xlg.6) — the driver's
-         result variants map onto them. -->
+         Ble1810Source.DISPLAY_NAME_RES; the errors are rendered by the read
+         UI (task xlg.6) — the driver's result variants map onto them. -->
     <string name="bp_source_type_ble_standard_1810">Стандартный BLE-тонометр</string>
-    <string name="ble1810_pairing_step1">Разбудите тонометр и держите его рядом с телефоном</string>
-    <string name="ble1810_pairing_step2">Подтвердите запрос сопряжения Bluetooth на обоих экранах — тонометр сопрягается через систему, а не через приложение производителя</string>
-    <string name="ble1810_pairing_step3">Нажмите кнопку передачи на тонометре, если показания не начали поступать сами</string>
     <string name="ble1810_error_bonding">Сопряжение с тонометром не завершено. Попробуйте ещё раз и подтвердите запрос на обоих экранах</string>
     <string name="ble1810_error_connect">Не удалось подключиться к тонометру. Разбудите его, подойдите ближе и попробуйте снова</string>
     <string name="ble1810_error_timeout">Тонометр перестал отвечать во время передачи</string>

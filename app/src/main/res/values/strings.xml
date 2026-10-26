@@ -3,10 +3,7 @@
     <string name="app_name">Extra Health Garmin</string>
 
     <!-- Generic -->
-    <string name="label_try_again">Try Again</string>
     <string name="dialog_ok">OK</string>
-    <string name="error_occurred">Error occurred</string>
-    <string name="please_try_again">Please try again</string>
 
     <!-- Health Connect home screen (task 2b) -->
     <string name="hc_status_checking">Checking Health Connect\u2026</string>
@@ -76,7 +73,14 @@
     <string name="measurement_read_success_none">No new measurements</string>
     <string name="measurement_read_pipeline_summary">Uploaded to Garmin: %1$d · Waiting for the watch: %2$d · Dropped: %3$d</string>
     <string name="measurement_read_store_failed">The readings could not be saved — they will be read again next time</string>
-    <string name="measurement_read_failed_unexpected">Unexpected error: %1$s</string>
+    <!-- The raw reason of the broken pass rides along as the detail line, so
+         the headline itself carries no placeholder (task xlg.8: rendering it
+         without a format argument showed a literal %1$s). -->
+    <string name="measurement_read_failed_unexpected">Unexpected error</string>
+    <!-- ConnectionRequired of a singleton source (task xlg.8 carry-over fix):
+         Health Connect's connect step IS the permission grant, so its revoked
+         access must not read as monitor-pairing guidance (ble1810 wording). -->
+    <string name="measurement_read_failed_hc_access">Health Connect blood-pressure access is not granted — allow it in the Health Connect app, then read again</string>
     <string name="measurement_upload_partial">Some measurements were not uploaded to Garmin — they are saved and will retry on the next read</string>
     <string name="measurement_upload_retryable">Upload to Garmin failed — the measurements are saved and will retry on the next read</string>
     <string name="measurement_autosync">Upload to Garmin automatically</string>
@@ -215,13 +219,9 @@
     <string name="settings_delete_failed">Could not delete the readings</string>
     <!-- Standard BLE Blood Pressure Service driver (devices/ble1810, task
          tefal2garmin-app-redesign-v3-xlg.9). Display name referenced by
-         Ble1810Source.DISPLAY_NAME_RES; the steps and errors are rendered by
-         the add-source flow / read UI (task xlg.3, xlg.6) — the driver's
-         result variants map onto them. -->
+         Ble1810Source.DISPLAY_NAME_RES; the errors are rendered by the read
+         UI (task xlg.6) — the driver's result variants map onto them. -->
     <string name="bp_source_type_ble_standard_1810">Standard BLE blood pressure monitor</string>
-    <string name="ble1810_pairing_step1">Wake the monitor and keep it close to the phone</string>
-    <string name="ble1810_pairing_step2">Confirm the Bluetooth pairing request on both screens — the monitor pairs through the system, not through a vendor app</string>
-    <string name="ble1810_pairing_step3">Press the monitor\'s transfer button if readings do not start arriving by themselves</string>
     <string name="ble1810_error_bonding">Pairing with the monitor did not complete. Try again and confirm the request on both screens</string>
     <string name="ble1810_error_connect">Could not connect to the monitor. Wake it up, stay close and try again</string>
     <string name="ble1810_error_timeout">The monitor stopped responding during the transfer</string>

@@ -16,6 +16,8 @@ import com.zamotkin.extrahealthgarmin.garmin.TokenCrypto
 import com.zamotkin.extrahealthgarmin.garmin.TokenPersistence
 import com.zamotkin.extrahealthgarmin.garmin.UploadJournal
 import com.zamotkin.extrahealthgarmin.garmin.UploadResult
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -75,6 +77,15 @@ class GarminRepositoryRecordsTest {
         var lastUploadTokens: GarminTokens? = null
             private set
 
+        /**
+         * Optional mid-pass gate (the sign-out race test): when set,
+         * [uploadWeighIns] signals [uploadReached] and then suspends until
+         * [releaseUpload] completes - the pass is in flight with its tokens
+         * already loaded.
+         */
+        var uploadReached: CompletableDeferred<Unit>? = null
+        var releaseUpload: CompletableDeferred<Unit>? = null
+
         override suspend fun login(email: String, password: String): LoginResult =
             throw AssertionError("login() is not under test in GarminRepositoryRecordsTest")
 
@@ -88,6 +99,8 @@ class GarminRepositoryRecordsTest {
             uploadCalls++
             lastUploadRecords = records
             lastUploadTokens = tokens
+            uploadReached?.complete(Unit)
+            releaseUpload?.await()
             uploadException?.let { throw it }
             return uploadResult ?: throw AssertionError(
                 "uploadWeighIns must not be called in this test (zero-network path)"
@@ -595,5 +608,35 @@ class GarminRepositoryRecordsTest {
 
         assertEquals(1, remote.profileCalls)
         assertNull(remote.lastUploadRecords!!.single().bmi)
+    }
+
+    @Test
+    fun `signOut during an in-flight upload does not resurrect the session`() = runTest {
+        // The xlg.7 review race (fixed in task xlg.8): a pass that loaded
+        // its tokens before the user signed out finishes and persists its
+        // rotated tokens - which would flip hasStoredToken() true again on
+        // the next start, silently re-signing the user in. The late save
+        // must be dropped; the pass's own outcome and journaling are not.
+        tokenStore.save(TOKENS)
+        val rotated = GarminTokens("jwt-late", "rt-late", TOKENS.diClientId)
+        remote.uploadResult = UploadResult.Success(1, rotated)
+        val uploadReached = CompletableDeferred<Unit>()
+        val releaseUpload = CompletableDeferred<Unit>()
+        remote.uploadReached = uploadReached
+        remote.releaseUpload = releaseUpload
+
+        var outcome: UploadOutcome? = null
+        val pass = launch { outcome = repository.uploadNewRecords(listOf(weighIn(E1))) }
+        uploadReached.await() // the pass is mid-upload, its tokens loaded
+        repository.signOut()
+        assertFalse("sign-out clears the stored session", repository.hasStoredToken())
+
+        releaseUpload.complete(Unit) // the pass finishes with rotated tokens
+        pass.join()
+
+        assertTrue("the pass itself still succeeds", outcome is UploadOutcome.Success)
+        assertNull("the late token save must not resurrect the session", tokenStore.load())
+        assertFalse(repository.hasStoredToken())
+        assertEquals("the upload's journaling is untouched", 1, journal.sentCount())
     }
 }

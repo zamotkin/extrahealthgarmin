@@ -40,8 +40,9 @@ import org.junit.Test
  * cross-source list mapping (R4 slot filter, removed sources invisible,
  * newest-first order, day headers, distinct synced states, the capped
  * window with "show more"), the read-now mapping over every
- * [SourceReadResult] variant plus the autosync post-read upload, the
- * per-source autosync toggle persistence, and the no-crash contract
+ * [SourceReadResult] variant (ConnectionRequired discriminated by the
+ * source's type shape, task xlg.8) plus the autosync post-read upload,
+ * the per-source autosync toggle persistence, and the no-crash contract
  * (broken seam, cancelled pass).
  *
  * Same harness conventions as MainViewModelSyncTest: no Robolectric,
@@ -507,6 +508,29 @@ class MeasurementsViewModelTest {
         }
         // No failed pass ever reaches the upload step.
         assertTrue(uploadSlots.isEmpty())
+    }
+
+    @Test
+    fun `connection required of a health connect source shows access guidance, not pairing`() {
+        // Task xlg.8 (the xlg.6 review carry-over): a singleton source's
+        // connect step IS the permission grant, so its ConnectionRequired
+        // must not read as monitor-bonding guidance. The BLE source's side
+        // of the discrimination is pinned by the test above (omron-1).
+        store.sources = listOf(hcSource)
+        readOutcome = {
+            SourceReadOutcome(SourceReadResult.ConnectionRequired("no grant"))
+        }
+
+        val vm = newViewModel()
+        pump()
+        vm.readNow("hc-1")
+        pump()
+
+        val status = statusOf(vm, "hc-1") as ReadNowState.Finished
+        assertEquals(R.string.measurement_read_failed_hc_access, status.messageRes)
+        assertEquals("no grant", status.detail)
+        assertTrue(status.isError)
+        assertTrue("a failed pass never reaches the upload step", uploadSlots.isEmpty())
     }
 
     @Test

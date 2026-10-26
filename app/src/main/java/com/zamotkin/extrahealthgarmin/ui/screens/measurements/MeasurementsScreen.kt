@@ -24,6 +24,8 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -184,9 +186,15 @@ private fun SourceCard(card: SourceCardState, viewModel: MeasurementsViewModel) 
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(12.dp))
+        // Haptic confirm on the primary action (task xlg.8): the tap that
+        // starts the read pass acknowledges itself.
+        val haptics = LocalHapticFeedback.current
         EhgButton(
             text = stringResource(R.string.measurement_read_now),
-            onClick = { viewModel.readNow(source.id) },
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                viewModel.readNow(source.id)
+            },
             enabled = card.status != ReadNowState.Reading,
             modifier = Modifier.fillMaxWidth(),
         )

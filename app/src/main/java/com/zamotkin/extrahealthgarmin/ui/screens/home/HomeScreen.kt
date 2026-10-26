@@ -21,6 +21,8 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -81,9 +83,15 @@ fun HomeScreen(
 
         val canSync =
             s.hcAvailable == true && s.hcPermissionsGranted && !s.hcSyncRunning
+        // Haptic confirm on the primary action (task xlg.8): the tap that
+        // starts the sync pass acknowledges itself.
+        val haptics = LocalHapticFeedback.current
         EhgButton(
             text = stringResource(R.string.sync_now),
-            onClick = viewModel::syncNow,
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                viewModel.syncNow()
+            },
             enabled = canSync,
             modifier = Modifier.fillMaxWidth(),
         )

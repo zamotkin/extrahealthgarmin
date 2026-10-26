@@ -22,16 +22,46 @@ App version: `versionCode`/`versionName` in `app/build.gradle`.
 
 ## Architecture
 
-Extra Health Garmin syncs body-composition weigh-ins from **Health Connect** into **Garmin Connect**.
-MVVM: `MainActivity` → `MainViewModel` (LiveData<`MainUiState`>) → `HealthSyncFacade` → `SyncEngine` →
-`GarminRepository.uploadNewRecords` → `GarminUploadClient` (FIT upload via `FitWeightFileBuilder`).
-No DI framework — wiring is manual in `HealthSyncWiring.facade` / `MainViewModelFactory`. Single
-activity, no fragments; views via `findViewById`. A second pipeline reads blood-pressure readings
-over BLE from an Omron monitor into a Room database and uploads them to Garmin Connect as one
-`blood_pressure.fit` batch.
+Extra Health Garmin syncs body-composition weigh-ins from **Health Connect** into **Garmin Connect**,
+and collects blood-pressure readings from pluggable sources (Omron M7 Intelli IT over BLE, the
+standard BLE Blood Pressure Service 0x1810, Health Connect) into a Room database, uploading them to
+Garmin Connect as one `blood_pressure.fit` batch. Single activity, no fragments, no XML layouts —
+the whole UI is Jetpack Compose under the shared `EhgTheme`: `MainActivity.setContent` →
+`ui/navigation/AppRoot`. MVVM: ViewModels own the logic (LiveData bridged via `observeAsState`),
+Composables render and forward taps. No DI framework — wiring is manual in `HealthSyncWiring.facade` /
+`*ViewModelFactory`.
 
 Packages under `app/src/main/java/com/zamotkin/extrahealthgarmin/`:
 
+- `ui/` — the Compose UI (epic tefal2garmin-app-redesign-v3; `ui/omron` and `res/layout` are gone).
+  `ui/kit/theme/EhgTheme` is the single design-token source (dynamic color on Android 12+, a
+  health-brand fallback palette, full dark scheme); `ui/kit/components` the shared widgets
+  (EhgButton, SectionCard, StatusRow, EmptyState…). `ui/navigation/AppRoot` owns the Scaffold +
+  bottom nav (Home / Measurements / Settings — Measurements renders only while at least one BP
+  source is connected, epic R8) and the app-level Garmin login dialog (`GarminLoginDialog` +
+  `LoginDialogVisibility`), opened over whichever tab is active from the Settings sign-in entry or
+  a LoginRequired pass. `ui/screens/home` — weigh-in status + "Sync now" (backed by `MainViewModel`
+  at `ui/`); `ui/screens/measurements` — the single BP page: one card per connected source
+  ("Read now", autosync toggle, read status) over the day-grouped readings list;
+  `ui/screens/settings` — grouped Connections (sources, destructive reads management) / Garmin
+  Connect / Health Connect (permission launchers, backfill picker, notes) / About (version,
+  diagnostics); `ui/screens/devices` — the add-source flow (type picker → BLE scan/pair or HC
+  grant → save), the source list and the source detail (sync mode, user slot, remove).
+- `devices/` — the vendor-neutral BP-source seam (epic R2: adding a source type = driver/adapter +
+  one registration, no core surgery). `api/` holds the contracts (`BpSource` — never-throwing
+  `read`, `BpSourceType` with Ble/Singleton shapes, `SourceCapabilities`, `SourceReadResult`
+  variants); `SourceRegistry` is a plain map (no reflection); `store/ConnectedSourceStore`
+  persists `bp-sources.json` (one row per source: type, name/address, pairing-key ref, user slot,
+  sync mode, autosync, last-read anchor, full-read-fallback flag) with row-atomic `update`;
+  `omron/OmronBleSource`, `ble1810/` (standard 0x1810 driver + fingerprint journal for clock-less
+  records) and `healthconnect/HcBpSource` (wraps the existing `BloodPressureSync` pass) are the
+  three registered types. `SourceReadUseCase.read` is the production caller: per-source mutex,
+  plan from the stored row, the epic-R4 user-slot ingestion filter, idempotent store via
+  `OmronBpRepository` (insert-ignore). Stabilized read protocol: a Current plan is flagged
+  `fullReadFallbackPending` BEFORE it runs (a pass killed by cancellation or process death gets
+  its window re-read as History next time); the anchor advance and the flag clear happen only
+  after `StoreResult.success` confirmed Room holds the rows; a `DeferredCommitSource` (the 0x1810
+  fingerprint journal) commits its dedup state only after the same confirmation.
 - `health/` — the sync core. `HealthConnectSource` reads the seven record types (weight, body fat,
   bone mass, lean body mass, body water, BMR, height) and manages changes tokens (first run = 30-day
   backfill; expired token = range re-read since the last sync anchor). `BodyMeasurementAggregator`
@@ -63,11 +93,12 @@ Packages under `app/src/main/java/com/zamotkin/extrahealthgarmin/`:
   folds the readout into `OmronBleResult`. The 16-byte pairing key lives in `OmronKeyStore`,
   AES-encrypted by `KeystoreAesPairingKeyCrypto` (Android Keystore, alias
   `extrahealthgarmin_omron_pairing_key` — the `TokenCrypto` counterpart).
-- `omron/data/` — the only Room in the app, scoped to `omron/`. `BloodPressureRecordEntity`
-  carries the unique (timestamp, userSlot) index that makes device re-reads idempotent;
-  `BloodPressureDao` is the interface seam unit tests fake; `OmronBpRepository` is the
-  never-throws gateway; `BpSyncCoordinator` marks records synced only after the upload confirmed
-  them.
+- `omron/data/` — the only Room in the app (vendor-scoped, but its DAO/repository are shared by
+  every BP source). `BloodPressureRecordEntity` carries the unique (timestamp, userSlot, sourceId)
+  index that makes device re-reads idempotent (schema v2 — destructive migration by product-owner
+  decision, BP data is re-read from sources); `BloodPressureDao` is the interface seam unit tests
+  fake; `OmronBpRepository` is the never-throws gateway; `BpSyncCoordinator` marks records synced
+  only after the upload confirmed them.
 - `garmin/` — the Garmin side. `GarminAuthClient` implements DI OAuth2 login with MFA resume
   (garth/python-garminconnect wire contract); tokens live in `GarminTokenStore`, AES-encrypted by
   `TokenCrypto` (Android Keystore, alias `extrahealthgarmin_di_tokens`). `FitWeightFileBuilder`
@@ -78,9 +109,11 @@ Packages under `app/src/main/java/com/zamotkin/extrahealthgarmin/`:
   keeps secrets out of debug logs (inactive in release).
 - `data/` — `GarminRepository` (`GarminUploadOrchestrator`): the UI-facing gateway that dedups
   against the journal, uploads new records as one batch and reports `UploadOutcome`; never throws.
-  `uploadBloodPressure` is the Omron-side entry point — a single-flight `Mutex` serializes
-  filter → upload → journal so concurrent callers cannot double-upload.
-- `ui/` — `MainViewModel` + factory.
+  `uploadBloodPressure` is the BP-sources entry point — a single-flight `Mutex` serializes
+  filter → upload → journal so concurrent callers cannot double-upload. `signOut` clears only the
+  tokens; token saves of in-flight upload passes are suppressed until the next successful login.
+- `ui/MainViewModel` (+ factory) — the shared weigh-in/account state machine both Home and
+  Settings render.
 
 State is deliberately one JSON file in `filesDir` (`hc-sync-state.json`, see `SyncStateStore`):
 changes token, last-sync instant, processed-record-id dedup set, cached height. Atomic writes
@@ -89,15 +122,24 @@ database in `omron/data/`.
 
 ### Main flow
 
-1. `MainActivity.onCreate` enqueues the periodic `SyncWorker` (idempotent) and renders the
-   Health Connect status line; the permission screen is launched via the Activity Result API
-   contract from `PermissionController`.
-2. Manual sync ("Sync now") runs `HealthSyncFacade.sync()` directly so the UI gets instant
+1. `MainActivity.onCreate` calls `enableEdgeToEdge()`, enqueues the periodic `SyncWorker`
+   (idempotent) and renders `AppRoot` (bottom nav: Home / Measurements / Settings). The Health
+   Connect permission screen, the Play Store fallback and the Health Connect settings deep link
+   are launched from the Settings tab's Compose UI via Activity-Result contracts; the
+   permission-usage rationale deep link opens the app-level privacy dialog.
+2. Weigh-ins: "Sync now" (Home) runs `HealthSyncFacade.sync()` directly so the UI gets instant
    `MainUiState` updates; the background worker runs the identical pass without touching UI state.
-3. When no valid Garmin token is stored, the flow surfaces `LoginRequired` and the login dialog
-   (`GarminAuthClient`, email + password + MFA) runs before the next attempt; token refresh is
-   automatic thereafter.
-4. Failed records are never journaled — they stay retriable and ride with the next sync pass.
+   The backfill picker lives in Settings → Health Connect.
+3. Garmin auth: with no valid token the flow surfaces `LoginRequired` and the app-level login
+   dialog (`GarminAuthClient`, email + password + MFA — `ui/navigation`) runs before the next
+   attempt; token refresh is automatic thereafter. Sign-out (Settings → Garmin Connect) clears
+   only the tokens — a concurrently finishing upload pass cannot resurrect the session.
+4. Blood pressure: Settings → Connections → Add source runs the guided flow (scan → pair → save,
+   or the Health Connect grant). The Measurements tab reads each source via
+   `SourceReadUseCase.read` ("Read now") and, when that source's autosync is on, uploads its slot
+   right after a successful read (`BpSyncCoordinator`). There is no background BP work.
+5. Failed records are never journaled — they stay retriable and ride with the next sync pass;
+   a failed BP read advances no anchor.
 
 ## Conventions
 
@@ -122,8 +164,8 @@ database in `omron/data/`.
   suppressing.
 - Changes to sync logic, aggregation, FIT encoding or auth must come with a unit test — the suite
   mirrors the packages, one test class per production class in
-  `app/src/test/java/com/zamotkin/extrahealthgarmin/` (`health/`, `garmin/`, `data/`, `ui/`,
-  `omron/`).
+  `app/src/test/java/com/zamotkin/extrahealthgarmin/` (`health/`, `garmin/`, `data/`, `devices/`,
+  `ui/`, `omron/`).
 
 ## Tools: when to use what
 
