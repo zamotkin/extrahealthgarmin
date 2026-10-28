@@ -62,7 +62,7 @@ Captured on a real phone with a connected Omron M7 Intelli IT (the phone in thes
 
 | Measurements (light) | Measurements (dark) |
 | :---: | :---: |
-| <img src="docs/images/screenshot-measurements-light.png" width="260" alt="Extra Health Garmin measurements tab — the connected Omron source card with device user, autosync switch and Read now button; empty state before the first read"> | <img src="docs/images/screenshot-measurements-dark.png" width="260" alt="Extra Health Garmin measurements tab in dark theme — the Omron source card with Read now and the empty readings state"> |
+| <img src="docs/images/screenshot-measurements-light.png" width="260" alt="Extra Health Garmin measurements tab — blood-pressure readings grouped by day with systolic, diastolic and pulse values, synced badges, and per-source cards (Omron M7 Intelli IT, Health Connect) with Read now and autosync"> | <img src="docs/images/screenshot-measurements-dark.png" width="260" alt="Extra Health Garmin measurements tab in dark theme — day-grouped blood-pressure readings from a connected monitor with sync status and source cards"> |
 
 | Settings | Settings with a connected source |
 | :---: | :---: |
