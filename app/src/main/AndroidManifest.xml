@@ -68,6 +68,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.ExtraHealthGarmin.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -75,25 +76,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Omron blood-pressure UI (epic tefal2garmin-939, task
-             tefal2garmin-mnb): Compose host for the transfer flow, readings
-             dashboard and settings. Launched only from MainActivity. -->
-        <activity
-            android:name=".ui.omron.OmronActivity"
-            android:exported="false"
-            android:theme="@style/Theme.ExtraHealthGarmin.NoActionBar" />
-
         <!-- Health Connect permission-usage rationale (task 2b): the system
              entry point behind Health Connect's "see how this app uses your
              data". Deliberately an activity-alias onto MainActivity rather
              than a separate activity file: the rationale launch carries the
              health_permissions_rationale extra (see
              MainActivity.EXTRA_HEALTH_PERMISSIONS_RATIONALE) and MainActivity
-             answers it with the privacy-policy dialog. Standard launchMode
-             means the rationale opens as its own instance on top of the
-             caller — no onNewIntent handling needed. The signature-level
-             START_VIEW_PERMISSION_USAGE permission restricts who may start
-             it. -->
+             answers it with the privacy-policy dialog. MainActivity's
+             singleTop launchMode routes a rationale launch onto a running
+             instance via onNewIntent instead of stacking a duplicate
+             activity. The signature-level START_VIEW_PERMISSION_USAGE
+             permission restricts who may start it. -->
         <activity-alias
             android:name=".HealthPermissionsRationale"
             android:targetActivity=".MainActivity"

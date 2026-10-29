@@ -2,6 +2,7 @@ package com.zamotkin.extrahealthgarmin.ui
 
 import android.app.Application
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -12,6 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.zamotkin.extrahealthgarmin.R
 import com.zamotkin.extrahealthgarmin.data.GarminRepository
 import com.zamotkin.extrahealthgarmin.data.GarminUploadOrchestrator
 import com.zamotkin.extrahealthgarmin.data.LoginStatus
@@ -72,6 +74,41 @@ data class MainUiState(
     /** Non-localized error marker/reason of the last failed pass; null when fine. */
     val hcSyncError: String? = null
 )
+
+/**
+ * Localized template of one upload/sync outcome line — the shared rendering
+ * model of the Home tab's status card and the Settings Garmin group's
+ * "last upload" row (task tefal2garmin-app-redesign-v3-xlg.7). [args] are
+ * the template's positional arguments; [failureMessage] is the first
+ * non-blank failure detail of the pass, rendered as a second line.
+ */
+data class UploadSummary(
+    @StringRes val messageRes: Int,
+    val args: List<Any> = emptyList(),
+    val failureMessage: String? = null
+)
+
+/**
+ * Maps [MainUiState.uploadStatus] onto the shared outcome line: null before
+ * the first pass, a progress note while in flight, one outcome template
+ * after. Pure mapping — the screens resolve the R.string.
+ */
+fun MainUiState.uploadSummary(): UploadSummary? = when (uploadStatus) {
+    null -> null
+    GarminUploadStatus.UPLOADING -> UploadSummary(R.string.upload_in_progress)
+    GarminUploadStatus.SUCCESS -> UploadSummary(R.string.upload_success, listOf(uploadedCount))
+    GarminUploadStatus.NOT_NEEDED -> UploadSummary(R.string.upload_not_needed)
+    GarminUploadStatus.PARTIAL -> UploadSummary(
+        R.string.upload_partial,
+        listOf(uploadedCount, totalRecords),
+        uploadMessages.firstOrNull { it.isNotBlank() }
+    )
+    GarminUploadStatus.RETRYABLE -> UploadSummary(
+        R.string.upload_retryable,
+        failureMessage = uploadMessages.firstOrNull { it.isNotBlank() }
+    )
+    GarminUploadStatus.LOGIN_REQUIRED -> UploadSummary(R.string.login_required)
+}
 
 class MainViewModel(
     private val garminUploader: GarminUploadOrchestrator,
@@ -244,6 +281,28 @@ class MainViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * User asked for the sign-in dialog (the Settings Garmin group's entry,
+     * task tefal2garmin-app-redesign-v3-xlg.7). Only surfaces the dialog —
+     * the sign-in itself runs in [loginToGarmin] once credentials are
+     * submitted.
+     */
+    fun requestGarminLogin() {
+        updateState { it.copy(showLoginDialog = true) }
+    }
+
+    /**
+     * User sign-out (the Settings Garmin group): clears ONLY the stored
+     * Garmin tokens via the repository. The dedup journals, sync anchors and
+     * pending records all stay, so a later sign-in resumes exactly where the
+     * sync left off — the same invariant as the automatic token clear on an
+     * auth failure.
+     */
+    fun signOut() {
+        garminUploader.signOut()
+        updateState { it.copy(garminConnected = false) }
     }
 
     /**

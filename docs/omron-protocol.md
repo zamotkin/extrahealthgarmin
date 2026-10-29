@@ -107,7 +107,7 @@ purpose unknown (§10).
 
 - Length: **16 bytes** (32 hex chars). `omblepy.py` `pairingKey` default
   `deadbeaf12341234deadbeaf12341234`, `writeNewUnlockKey` raises unless `len == 16`.
-- Value: arbitrary; generated once per host, then constant. Not derived from any secret.
+- Value: arbitrary; generated once per host, then constant. Not derived from any secret. The 2026-10-26 research appendix (§12) re-verified this against the community sources: no serial→key derivation exists in any Omron implementation.
 - Storage: inside the **device** (its location is opaque to the client — written via the
   unlock characteristic, not via EEPROM block writes).
 
@@ -410,5 +410,43 @@ GATT discovery, `2A2B` time sync, `2A35` indications) and com.zamotkin.extraheal
 stay out of the repository per the redaction rule (§9.5): they contain BD addresses and key
 material, and this document cites neither — the advertising-name suffix (§1.3) is the citable
 device identifier.
+
+## 12. Pairing-Key Origin Research (task tefal2garmin-app-redesign-v3-xlg.17, 2026-10-26)
+
+Question investigated: does a community-documented derivation exist that maps the device serial
+number (DIS `0x180A` / Serial Number String `0x2A25`) onto the 16-byte application pairing key
+(§3) — i.e. can the key be computed instead of invented? Investigated against the omblepy
+lineage, the ESPHome Omron external components, and the Home Assistant community write-ups.
+
+**Conclusion: no serial→key derivation exists in any examined implementation. The pairing key is
+invented by the client, not derived from the serial. The research contradicts the derivation
+hypothesis; the app therefore implements the evidenced path — a once-generated random 16-byte key
+per §3.1/§3.3 — and manual entry stays as an advanced fallback.** Evidence:
+
+| # | Source | What it shows |
+|---|---|---|
+| 1 | omblepy `omblepy.py` (pinned SHA, see Source Baseline) — global `pairingKey` | `deadbeaf12341234deadbeaf12341234  #arbitrary choice`; set only via CLI `-k/--key` ("Pairing key as a 32-character hex-string"). No code path reads the serial number, DIS, or `0x2A25`; grep for "serial"/"2A25"/"Device Information" over the file is empty. |
+| 2 | [dzikus/esphome-omron](https://github.com/dzikus/esphome-omron) README (ESPHome external component, 248 model names / 37 profiles) | Explicit: "The key is yours to invent. It is not issued by Omron and there is nothing to look up: pick 32 hex characters" — the user-chosen `bindkey` is written to the cuff during first pairing; also "cuffs drop the bond of hosts that pair without registering". The component reads Device Information (model/firmware/serial entities) for metadata and profile auto-detection only — never for the key. |
+| 3 | [userx14/omblepy](https://github.com/userx14/omblepy) README — "Pairing for Universal Blood Pressure Manager (UBPM)" section | First pairing is the `-p` write procedure (§3.2); the README treats the key value as a black box the tool writes. No derivation; success just binds the device to the host's MAC ("your omron device is now bound to the mac address of your pc and UBPM should work without mac address spoofing"). |
+| 4 | [Home Assistant community — Omron BLE BPM (HEM-7142T2) custom integration](https://community.home-assistant.io/t/omron-ble-bpm-hem-7142t2-custom-integration/1003286) | Newer cuffs (HEM-7142T2) use plain SMP bonding with no application key at all; the separate BP5465/HEM-7386T1 discussion there describes an application-level registration write (38-byte @0x0058 + 16-byte @0x0088) — a registration payload, still not serial-derived. |
+| 5 | This spec §3.3 `[CAPTURE]` (2026-10-24, this exact HEM-7361T-ALRU) | Unlock `01 || key(16)` answered `8100` with an arbitrary, never-registered key — an unregistered M7 Intelli IT accepts any 16-byte key, so a client-invented key is sufficient in the unregistered state. |
+| 6 | This spec §1.3 `[CAPTURE]` | The advertised name already ends in the 12-hex serial (== public BD address) and the standard-profile session exposes it via DIS; community clients (row 2) use it for identification, none for keying. |
+
+Applicability to the M7 Intelli IT (HEM-7361T): rows 1–3 cover this device family directly
+(omblepy's `hem-7361t.py` driver is this spec's source baseline); rows 4–6 corroborate that the
+key-in-the-client model, not a derivation, is the family's design. An "OpenOmron" project under
+that literal name was searched for and does not exist (GitHub 404); the lineage behind the name is
+omblepy (row 1) and its ESPHome descendant (row 2).
+
+Implemented behavior (task xlg.17, this repo): the add-source flow asks for NO key. On save, the
+app generates one random 16-byte key per install via the existing `OmronKeyStore.getOrCreate()`
+(§3.1 semantics; unit-tested in `OmronKeyStoreTest`) and unlocks with it — valid per row 5 for an
+unregistered monitor. If the monitor was previously REGISTERED by another client (e.g. paired
+through UBPM/Omron Connect with their key, §3.2), unlock with our generated key would fail; that
+case keeps manual key entry as a collapsed ADVANCED fallback in the pairing step
+(`submitPairingKey` path unchanged). The DIS serial read needs no protocol change: with no
+derivation existing, a serial read would produce no key material, so none was added (the DIS map
+in §1.1 stands as-is). Real-hardware confirmation of the generated-key unlock rides with the
+epic's on-device verification task (.10), per R11.
 
 *Medical disclaimer: this document supports software integration only; it is not medical advice.*

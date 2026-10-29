@@ -3,15 +3,12 @@
     <string name="app_name">Extra Health Garmin</string>
 
     <!-- Generic -->
-    <string name="label_try_again">Попробовать снова</string>
     <string name="dialog_ok">OK</string>
-    <string name="error_occurred">Произошла ошибка</string>
-    <string name="please_try_again">Пожалуйста, попробуйте еще раз</string>
 
     <!-- Health Connect home screen (task 2b) -->
     <string name="hc_status_checking">Проверяем Health Connect…</string>
-    <string name="hc_status_unavailable">Health Connect отсутствует или устарел — нажмите, чтобы установить или обновить</string>
-    <string name="hc_status_needs_permission">Health Connect нужны разрешения — нажмите, чтобы выдать</string>
+    <string name="hc_status_unavailable">Health Connect отсутствует или устарел</string>
+    <string name="hc_status_needs_permission">Health Connect нужны разрешения</string>
     <string name="hc_status_ready">Health Connect подключен</string>
     <string name="hc_never_synced">Синхронизация еще не выполнялась</string>
     <string name="hc_last_sync">Последняя синхронизация: %1$s</string>
@@ -64,52 +61,176 @@
     <string name="alert_bp_dropped_text">Измерений отброшено (сутки без пульса с часов Garmin): %1$d</string>
     <string name="hydration_note">Вода: новые записи Health Connect добавляются в дневную гидратацию Garmin с момента выдачи доступа (старые нет: Garmin не знает, учтены ли они уже). Удаление или изменение записи исправляет Garmin.</string>
     <string name="hydration_note_tap">Нажмите, чтобы разрешить доступ к гидратации.</string>
-    <!-- Omron blood pressure -->
-    <string name="omron_open">Артериальное давление (Omron)</string>
-    <string name="omron_title_dashboard">Артериальное давление</string>
-    <string name="omron_title_transfer">Перенос с тонометра</string>
-    <string name="omron_title_settings">Настройки</string>
-    <string name="omron_tab_readings">Измерения</string>
-    <string name="omron_tab_transfer">Перенос</string>
-    <string name="omron_tab_settings">Настройки</string>
-    <string name="omron_start">Начать перенос</string>
-    <string name="omron_full_transfer">Перенести всю историю</string>
-    <string name="omron_full_transfer_hint">Читает все сохранённые измерения выбранного пользователя тонометра, а не только новые</string>
-    <string name="omron_pairing_step1">Зажмите кнопку передачи на тонометре на 3-5 секунд, пока на экране не появится -P-</string>
-    <string name="omron_pairing_step2">Держите тонометр рядом с телефоном - по завершении переноса он покажет [OK]</string>
-    <string name="omron_pairing_step3">Тонометр работает с одним приложением одновременно - сначала отвяжите его от Omron Connect</string>
-    <string name="omron_reading">Читаем данные с тонометра...</string>
-    <string name="omron_permissions_grant">Выдать разрешения</string>
-    <string name="omron_permissions_rationale">Для чтения данных с тонометра нужны разрешения Bluetooth</string>
-    <string name="omron_bonding_required">Тонометр не сопряжен с этим телефоном. Выполните сопряжение в настройках Bluetooth Android и попробуйте снова</string>
-    <string name="omron_success">Перенесено новых измерений: %1$d</string>
-    <string name="omron_success_none">На тонометре нет новых измерений</string>
-    <string name="omron_error_auth">Тонометр отклонил ключ сопряжения приложения - он сопряжен с другим телефоном или приложением. Очистите данные приложения и выполните сопряжение заново</string>
-    <string name="omron_error_timeout">Тонометр не ответил вовремя. Убедитесь, что на экране -P-, и попробуйте снова</string>
-    <string name="omron_error_disconnected">Тонометр отключился во время переноса - держите его ближе и попробуйте снова</string>
-    <string name="omron_error_failed">Не удалось выполнить перенос</string>
-    <string name="omron_error_unexpected">Непредвиденная ошибка: %1$s</string>
-    <string name="omron_error_sync_partial">Часть измерений не загрузилась в Garmin - они сохранены и повторят загрузку при следующей синхронизации</string>
-    <string name="omron_error_sync_retryable">Загрузка в Garmin не удалась - измерения сохранены и повторят загрузку при следующей синхронизации</string>
-    <string name="omron_error_garmin_login_required">Войдите в Garmin, чтобы загружать измерения</string>
-    <string name="omron_autosync">Загружать в Garmin автоматически</string>
-    <string name="omron_autosync_hint">Загружаются только измерения выбранного пользователя тонометра</string>
-    <string name="omron_no_readings">Измерений пока нет - перенесите их с тонометра</string>
-    <string name="omron_readings_count">Измерений: %1$d</string>
-    <string name="omron_reading_pulse">%1$d уд/мин</string>
-    <string name="omron_reading_sys_dia">%1$d/%2$d мм рт. ст.</string>
-    <string name="omron_badge_mov">движ.</string>
-    <string name="omron_badge_ihb">аритмия</string>
-    <string name="omron_user1">Пользователь 1</string>
-    <string name="omron_user2">Пользователь 2</string>
-    <string name="omron_settings_user_section">Пользователь тонометра</string>
-    <string name="omron_slot_hint">Измерения каждого пользователя тонометра переносятся и хранятся отдельно</string>
-    <string name="omron_settings_relogin">Повторно войти в Garmin</string>
-    <string name="omron_settings_delete_slot">Удалить измерения профиля</string>
-    <string name="omron_settings_delete_slot_confirm">Это навсегда удалит сохранённые в приложении измерения пользователя тонометра %1$d.</string>
-    <string name="omron_settings_delete_all">Удалить все измерения</string>
-    <string name="omron_settings_delete_all_confirm">Это навсегда удалит все измерения, сохранённые в приложении. Уже загруженные в Garmin измерения там не удаляются.</string>
-    <string name="omron_settings_delete_all_yes">Удалить</string>
-    <string name="omron_settings_delete_cancel">Отмена</string>
-    <string name="omron_open_readings">Показать измерения</string>
+    <!-- Страница «Измерений» (ui/screens/measurements, задача
+         tefal2garmin-app-redesign-v3-xlg.6): единая страница давления,
+         вобравшая прежний дашборд Omron. Заголовки ошибок чтения берутся из
+         формулировок стандартного BLE-драйвера задачи xlg.9
+         (ble1810_error_*); исходная причина слоя идёт строкой подробностей. -->
+    <string name="measurement_read_now">Прочитать сейчас</string>
+    <string name="measurement_read_running">Чтение из источника…</string>
+    <string name="measurement_read_success_new">Прочитано новых измерений: %1$d</string>
+    <string name="measurement_read_success_none">Новых измерений нет</string>
+    <string name="measurement_read_pipeline_summary">Загружено в Garmin: %1$d · Ожидают пульса часов: %2$d · Отброшено: %3$d</string>
+    <string name="measurement_read_store_failed">Не удалось сохранить измерения — они будут прочитаны снова при следующем чтении</string>
+    <!-- Исходная причина сбоя идёт строкой подробностей, поэтому в заголовке
+         нет заполнителя (задача xlg.8: вывод без аргумента форматирования
+         показывал литеральный %1$s). -->
+    <string name="measurement_read_failed_unexpected">Непредвиденная ошибка</string>
+    <!-- ConnectionRequired одиночного источника (правка из ревью xlg.8):
+         доступ Health Connect и есть его шаг подключения, поэтому отзыв
+         доступа не должен звучать как инструкция по сопряжению (ble1810). -->
+    <string name="measurement_read_failed_hc_access">Доступ к давлению в Health Connect не выдан — разрешите его в приложении Health Connect и прочитайте снова</string>
+    <string name="measurement_upload_partial">Часть измерений не загрузилась в Garmin — они сохранены и повторят загрузку при следующем чтении</string>
+    <string name="measurement_upload_retryable">Загрузка в Garmin не удалась — измерения сохранены и повторят загрузку при следующем чтении</string>
+    <string name="measurement_autosync">Загружать в Garmin автоматически</string>
+    <string name="measurement_autosync_hint">После каждого успешного чтения новые измерения загружаются в Garmin</string>
+    <string name="measurement_source_last_reading">Новейшее измерение: %1$s</string>
+    <string name="measurement_source_never_read">Измерений пока нет</string>
+    <string name="measurement_readings_count">Измерений: %1$d</string>
+    <string name="measurement_readings_empty_text">Нажмите «Прочитать сейчас», чтобы собрать измерения из источников.</string>
+    <string name="measurement_show_more">Показать ещё (%1$d)</string>
+    <string name="measurement_reading_sys_dia">%1$d/%2$d мм рт. ст.</string>
+    <string name="measurement_reading_pulse">%1$d уд/мин</string>
+    <string name="measurement_badge_mov">движ.</string>
+    <string name="measurement_badge_ihb">аритмия</string>
+    <string name="measurement_state_synced">Синхронизировано</string>
+    <string name="measurement_state_unsynced">Не синхронизировано</string>
+
+    <!-- Каркас приложения (redesign v3, задача xlg.1): нижняя навигация и
+         промежуточное содержимое «Измерений» и «Настроек» -->
+    <string name="nav_home">Главная</string>
+    <string name="nav_measurements">Измерения</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="measurements_empty_title">Измерений пока нет</string>
+    <string name="measurements_empty_text">Подключите источник артериального давления в настройках, чтобы увидеть измерения здесь.</string>
+    <!-- Blood-pressure source types (devices/, task tefal2garmin-app-redesign-v3-xlg.2).
+         Brand names — identical in every locale, like app_name. -->
+    <string name="bp_source_type_omron_ble">Omron M7 Intelli IT</string>
+    <string name="bp_source_type_health_connect">Health Connect</string>
+
+    <!-- Add-source flow + source management (ui/screens/devices/, task
+         tefal2garmin-app-redesign-v3-xlg.3). -->
+    <string name="action_back">Назад</string>
+    <string name="add_source">Добавить источник</string>
+    <string name="add_source_title">Добавление источника давления</string>
+    <string name="add_source_pick_hint">Выберите, откуда брать измерения давления</string>
+    <string name="add_source_ble_hint">Беспроводной тонометр через Bluetooth</string>
+    <string name="add_source_hc_hint">Измерения, сохранённые другими приложениями на этом телефоне</string>
+    <string name="add_source_ble_permissions_title">Нужны разрешения Bluetooth</string>
+    <string name="add_source_ble_permissions_text">Чтобы найти тонометр, приложению нужно разрешение Bluetooth.</string>
+    <string name="add_source_ble_permissions_denied_text">Без разрешения Bluetooth приложение не сможет искать тонометр. Разрешение можно выдать в любой момент.</string>
+    <string name="add_source_ble_permissions_grant">Выдать разрешение</string>
+    <string name="add_source_scanning">Поиск</string>
+    <string name="add_source_scan_hint">Разбудите тонометр (измерьте давление или нажмите его кнопку) и держите его рядом.</string>
+    <string name="add_source_no_devices">Тонометры пока не найдены</string>
+    <string name="add_source_rssi">%1$d дБм</string>
+    <string name="add_source_stop_scan">Остановить поиск</string>
+    <string name="add_source_scan_again">Искать снова</string>
+    <string name="add_source_scan_error">Не удалось выполнить поиск</string>
+    <string name="add_source_pair_title">Подключение: %1$s</string>
+    <string name="add_source_key_label">Ключ сопряжения</string>
+    <!-- Задача xlg.17: на шаге сопряжения с Omron ничего вводить не нужно (приложение создаст
+         свой ключ); ручной ввод остался свёрнутым дополнением ниже. -->
+    <string name="add_source_auto_key_hint">Вводить ничего не нужно — приложение создаст свой ключ сопряжения и разблокирует тонометр при первом чтении. Держите тонометр включённым и рядом при подключении.</string>
+    <string name="add_source_key_advanced">Ввести ключ сопряжения вручную</string>
+    <string name="add_source_key_use_manual">Использовать этот ключ</string>
+    <string name="add_source_key_hint">Дополнительно: нужно, только если тонометр уже сопряжён с другим приложением, задавшим свой ключ. Введите ровно 16 символов — приложение будет использовать этот ключ вместо своего.</string>
+    <string name="add_source_key_error">Ключ сопряжения должен содержать ровно 16 символов.</string>
+    <!-- Однократный выбор пользователя тонометра (задача
+         tefal2garmin-app-redesign-v3-xlg.4): показывается только для типов
+         источников с пользовательскими слотами (Omron). -->
+    <string name="add_source_slot_hint">Какой пользователь тонометра вы? В приложение попадут измерения только этого пользователя.</string>
+    <string name="add_source_slot_error">Выберите пользователя тонометра, чтобы продолжить.</string>
+    <string name="add_source_bonding_hint">Этот тонометр сопрягается через системное окно Bluetooth — оно появится при первом чтении.</string>
+    <string name="add_source_hc_grant_hint">Доступ к давлению предоставляется в приложении Health Connect.</string>
+    <string name="add_source_hc_grant">Предоставить доступ</string>
+    <string name="add_source_hc_denied_text">Доступ к давлению не предоставлен — измерения из Health Connect недоступны.</string>
+    <string name="add_source_hc_unavailable">Health Connect не установлен или требует обновления.</string>
+    <string name="add_source_save">Сохранить</string>
+    <string name="add_source_saving">Сохранение…</string>
+    <string name="add_source_done_title">Источник добавлен</string>
+    <string name="add_source_done_text">Источник готов к чтению.</string>
+    <string name="add_source_done">Готово</string>
+    <string name="add_source_save_error">Не удалось сохранить источник. Попробуйте ещё раз.</string>
+    <string name="add_source_start_over">Начать сначала</string>
+    <string name="sources_title">Источники давления</string>
+    <string name="sources_empty_title">Источников пока нет</string>
+    <string name="sources_empty_text">Добавьте тонометр или Health Connect, чтобы собирать измерения давления.</string>
+    <string name="source_detail_title">Источник</string>
+    <string name="source_detail_type">Тип</string>
+    <string name="source_detail_address">Адрес</string>
+    <string name="source_detail_connected">Подключён</string>
+    <!-- Пользователь в карточке источника (задача
+         tefal2garmin-app-redesign-v3-xlg.4): строка слота только для чтения
+         у источников со слотами; для остальных — пояснение. Строка
+         source_user_slot_name общая с выбором при добавлении источника. -->
+    <string name="source_user_slot_name">Пользователь %1$d</string>
+    <string name="source_detail_user_slot">Пользователь тонометра</string>
+    <string name="source_detail_user_slot_unset">Не выбран — удалите источник и добавьте снова, чтобы выбрать</string>
+    <string name="source_detail_owner_attribution">Все измерения относятся к владельцу телефона</string>
+    <string name="source_remove">Удалить источник</string>
+    <string name="source_remove_confirm_title">Удалить этот источник?</string>
+    <string name="source_remove_confirm_text">Будет удалено только подключение; сохранённые измерения останутся.</string>
+    <string name="source_remove_confirm_action">Удалить</string>
+    <string name="source_remove_cancel">Отмена</string>
+    <string name="source_not_found">Этот источник больше не подключён.</string>
+    <!-- Режимы синхронизации в карточке источника (задача
+         tefal2garmin-app-redesign-v3-xlg.5): переключатель «История/Новые»
+         показывается только для источников с обоими режимами (Omron);
+         для источников с одним режимом — пояснение вместо переключателя:
+         формулировка из возможностей типа, без названий производителей. -->
+    <string name="source_detail_sync_mode">Режим синхронизации</string>
+    <string name="source_sync_mode_history">История</string>
+    <string name="source_sync_mode_current">Новые</string>
+    <string name="source_sync_mode_history_hint">Считывает всю память устройства; уже сохранённые измерения пропускаются.</string>
+    <string name="source_sync_mode_current_hint">Считывает только измерения, сделанные после последнего успешного чтения.</string>
+    <string name="source_sync_mode_history_only">Этот источник всегда считывает всю историю.</string>
+    <string name="source_sync_mode_current_only">Этот источник всегда считывает только новые измерения.</string>
+    <string name="settings_connections_title">Подключения</string>
+    <string name="settings_connections_sources">Источники давления</string>
+    <string name="settings_connections_sources_value">Тонометры и приложения</string>
+    <!-- Сгруппированные настройки (redesign v3, задача
+         tefal2garmin-app-redesign-v3-xlg.7, требование R7): все служебные
+         функции переехали с главной страницы в свои группы — Garmin Connect
+         (аккаунт), Health Connect (переключатель разрешений, управление
+         доступом, загрузка истории, заметки о необязательных разрешениях) и
+         «О приложении» (версия, исходный код, диагностика только для
+         чтения). Строки hc_status_* выше общие с главной страницей — одно
+         оформление состояния во всех точках входа. -->
+    <string name="settings_garmin_title">Garmin Connect</string>
+    <string name="garmin_not_connected">Garmin не подключен</string>
+    <string name="settings_garmin_last_upload">Последняя загрузка</string>
+    <string name="settings_garmin_sign_out">Выйти</string>
+    <string name="settings_hc_title">Health Connect</string>
+    <string name="settings_hc_sync_toggle">Синхронизация с Health Connect</string>
+    <string name="settings_hc_manual_grant_hint">Разрешите доступ в настройках приложения Health Connect.</string>
+    <string name="settings_hc_manage_access">Управление доступом</string>
+    <string name="settings_hc_install_update">Установить или обновить Health Connect</string>
+    <string name="settings_about_title">О приложении</string>
+    <string name="settings_about_version">Версия</string>
+    <string name="settings_about_source">Исходный код</string>
+    <string name="settings_diag_weighin_journal">Журнал взвешиваний</string>
+    <string name="settings_diag_bp_journal">Журнал давления</string>
+    <string name="settings_diag_last_weighin_sync">Последняя синхронизация взвешиваний</string>
+    <string name="settings_diag_last_read">Последнее чтение · %1$s</string>
+    <!-- Опасные действия с измерениями в группе «Подключения» (задача
+         xlg.7): семантика удалённого экрана настроек ui/omron — измерения
+         одного пользователя тонометра или все, каждое за диалогом
+         подтверждения; загруженные в Garmin измерения там не удаляются. -->
+    <string name="settings_delete_for_user">Удалить измерения — пользователь %1$d</string>
+    <string name="settings_delete_for_user_confirm">Это навсегда удалит сохранённые в приложении измерения пользователя тонометра %1$d. Уже загруженные в Garmin измерения там не удаляются.</string>
+    <string name="settings_delete_all">Удалить все измерения</string>
+    <string name="settings_delete_all_confirm">Это навсегда удалит все измерения, сохранённые в приложении. Уже загруженные в Garmin измерения там не удаляются.</string>
+    <string name="settings_delete_confirm_action">Удалить</string>
+    <string name="settings_delete_success">Измерения удалены</string>
+    <string name="settings_delete_failed">Не удалось удалить измерения</string>
+    <!-- Standard BLE Blood Pressure Service driver (devices/ble1810, task
+         tefal2garmin-app-redesign-v3-xlg.9). Display name referenced by
+         Ble1810Source.DISPLAY_NAME_RES; the errors are rendered by the read
+         UI (task xlg.6) — the driver's result variants map onto them. -->
+    <string name="bp_source_type_ble_standard_1810">Стандартный BLE-тонометр</string>
+    <string name="ble1810_error_bonding">Сопряжение с тонометром не завершено. Попробуйте ещё раз и подтвердите запрос на обоих экранах</string>
+    <string name="ble1810_error_connect">Не удалось подключиться к тонометру. Разбудите его, подойдите ближе и попробуйте снова</string>
+    <string name="ble1810_error_timeout">Тонометр перестал отвечать во время передачи</string>
+    <string name="ble1810_error_disconnected">Связь с тонометром потеряна во время передачи</string>
 </resources>

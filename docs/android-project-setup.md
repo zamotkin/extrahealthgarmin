@@ -1,5 +1,9 @@
 # Android Project Setup for Tefal2Garmin Sync Utility
 
+> **Historical note:** this walkthrough creates the original v1 CSV-converter scaffold
+> (`com.example.tefal2garmin`). The shipped app is `com.zamotkin.extrahealthgarmin`
+> (see [CLAUDE.md](../CLAUDE.md)); kept as a record of the project's origin.
+
 ## Project Structure
 
 ```

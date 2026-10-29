@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="md_theme_light_primary">#6750A4</color>
+    <!-- Brand fallback tokens for the XML window theme (the Compose side
+         lives in ui/kit/theme/EhgTheme.kt — same teal seed). Only the
+         pre-Compose window decoration sees these. -->
+    <color name="md_theme_light_primary">#006A60</color>
     <color name="md_theme_light_onPrimary">#FFFFFF</color>
 </resources>

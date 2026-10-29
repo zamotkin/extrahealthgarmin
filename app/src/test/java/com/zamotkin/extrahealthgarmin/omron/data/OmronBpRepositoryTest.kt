@@ -35,6 +35,7 @@ class OmronBpRepositoryTest {
         val rows = mutableListOf<BloodPressureRecordEntity>()
         private var nextId = 1L
         var failure: Exception? = null
+        var allForSourcesCalls = 0
 
         override suspend fun deleteAll() {
             failure?.let { throw it }
@@ -53,7 +54,8 @@ class OmronBpRepositoryTest {
             return records.map { record ->
                 val duplicate = rows.any {
                     it.timestampEpochSec == record.timestampEpochSec &&
-                        it.userSlot == record.userSlot
+                        it.userSlot == record.userSlot &&
+                        it.sourceId == record.sourceId
                 }
                 if (duplicate) {
                     -1L
@@ -79,11 +81,13 @@ class OmronBpRepositoryTest {
 
         override suspend fun markSynced(timestampEpochSec: Long, userSlot: Int) {
             failure?.let { throw it }
-            val index = rows.indexOfFirst {
-                it.timestampEpochSec == timestampEpochSec && it.userSlot == userSlot
-            }
-            if (index >= 0) {
-                rows[index] = rows[index].copy(synced = true)
+            // Mirrors the DAO SQL: every source's row with that key flips,
+            // because the Garmin journal dedups per (timestamp, userSlot).
+            rows.indices.forEach { index ->
+                val row = rows[index]
+                if (row.timestampEpochSec == timestampEpochSec && row.userSlot == userSlot) {
+                    rows[index] = row.copy(synced = true)
+                }
             }
         }
 
@@ -99,6 +103,40 @@ class OmronBpRepositoryTest {
             failure?.let { throw it }
             return rows
                 .filter { it.userSlot == userSlot }
+                .sortedByDescending { it.timestampEpochSec }
+        }
+
+        override suspend fun allForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter { it.sourceId == sourceId && (userSlot == null || it.userSlot == userSlot) }
+                .sortedByDescending { it.timestampEpochSec }
+        }
+
+        override suspend fun unsyncedForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter {
+                    it.sourceId == sourceId &&
+                        !it.synced &&
+                        (userSlot == null || it.userSlot == userSlot)
+                }
+                .sortedBy { it.timestampEpochSec }
+        }
+
+        override suspend fun allForSources(
+            sourceIds: List<String>,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            allForSourcesCalls++
+            return rows
+                .filter { it.sourceId in sourceIds }
                 .sortedByDescending { it.timestampEpochSec }
         }
     }
@@ -173,6 +211,79 @@ class OmronBpRepositoryTest {
 
         assertEquals(OmronBpRepository.StoreResult(insertedCount = 2, duplicatesCount = 0), result)
         assertEquals(2, dao.rows.size)
+    }
+
+    /**
+     * Task tefal2garmin-app-redesign-v3-xlg.15: zero inserted must not read
+     * as failure — these rows are already durable in Room, which is exactly
+     * what the read orchestrator's deferred journal commit keys on.
+     */
+    @Test
+    fun `an all-duplicates batch reports success with zero inserted`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)))
+
+        val again = repository.storeReadings(listOf(reading(1_000)))
+
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 1, success = true),
+            again
+        )
+        assertEquals(1, dao.rows.size)
+    }
+
+    /** Nothing to write is not a failure either (a pass that read nothing new). */
+    @Test
+    fun `an empty batch reports success`() = runTest {
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0, success = true),
+            repository.storeReadings(emptyList())
+        )
+    }
+
+    // ------------------------------------------------------------------ //
+    //  sourceId (task tefal2garmin-app-redesign-v3-xlg.2)                 //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun `storeReadings tags rows with the given source id`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "uuid-of-a-real-source")
+
+        assertEquals("uuid-of-a-real-source", dao.rows.single().sourceId)
+    }
+
+    @Test
+    fun `storeReadings without a source id defaults to the legacy one`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)))
+
+        assertEquals(BloodPressureRecordEntity.LEGACY_SOURCE_ID, dao.rows.single().sourceId)
+    }
+
+    @Test
+    fun `same timestamp and slot for different sources are distinct rows`() = runTest {
+        val first = repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+        val second = repository.storeReadings(listOf(reading(1_000)), sourceId = "source-b")
+        val again = repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0), first)
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 1, duplicatesCount = 0), second)
+        assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 1), again)
+        assertEquals(
+            listOf("source-a", "source-b"),
+            dao.rows.map { it.sourceId }
+        )
+    }
+
+    @Test
+    fun `markSynced marks every source row with that timestamp and slot`() = runTest {
+        // Two sources hold the same measurement: once Garmin holds it (the
+        // journal is keyed timestamp+slot), no copy can upload again, so the
+        // mark must cover both rows.
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "source-b")
+
+        assertTrue(repository.markSynced(1_000, userSlot = 1))
+
+        assertTrue(dao.rows.all { it.synced })
     }
 
     // ------------------------------------------------------------------ //
@@ -257,6 +368,136 @@ class OmronBpRepositoryTest {
     }
 
     // ------------------------------------------------------------------ //
+    //  Source-scoped queries (task tefal2garmin-app-redesign-v3-xlg.4)    //
+    // ------------------------------------------------------------------ //
+
+    /** Display filter: one source's rows only, other sources stay invisible. */
+    @Test
+    fun `allForSource returns only that source's rows newest first`() = runTest {
+        repository.storeReadings(
+            listOf(reading(1_000), reading(2_000)),
+            sourceId = "source-a"
+        )
+        repository.storeReadings(listOf(reading(3_000)), sourceId = "source-b")
+
+        val rows = repository.allForSource(sourceId = "source-a")
+
+        assertEquals(listOf(2_000L, 1_000L), rows.map { it.timestampEpochSec })
+    }
+
+    /**
+     * The R4 display/upload filter: rows of other user slots - read before a
+     * slot was picked - stay invisible once the source has its user.
+     */
+    @Test
+    fun `allForSource with a user slot hides the other slot's rows`() = runTest {
+        repository.storeReadings(
+            listOf(
+                reading(1_000, userSlot = 1),
+                reading(2_000, userSlot = 2),
+                reading(3_000, userSlot = 1),
+            ),
+            sourceId = "source-a"
+        )
+
+        val selected = repository.allForSource(sourceId = "source-a", userSlot = 2)
+
+        assertEquals(listOf(2_000L), selected.map { it.timestampEpochSec })
+    }
+
+    /** No slot filter: every slot of the source (the NONE-attribution shape). */
+    @Test
+    fun `allForSource without a slot returns every slot of the source`() = runTest {
+        repository.storeReadings(
+            listOf(reading(1_000, userSlot = 1), reading(2_000, userSlot = 2)),
+            sourceId = "source-a"
+        )
+        repository.storeReadings(listOf(reading(3_000, userSlot = 1)), sourceId = "source-b")
+
+        val all = repository.allForSource(sourceId = "source-a")
+
+        assertEquals(listOf(2_000L, 1_000L), all.map { it.timestampEpochSec })
+    }
+
+    /** Upload filter: unsynced rows of one source (and slot), oldest first. */
+    @Test
+    fun `unsyncedForSource filters source and slot and skips synced rows`() = runTest {
+        repository.storeReadings(
+            listOf(
+                reading(1_000, userSlot = 1),
+                reading(2_000, userSlot = 2),
+                reading(3_000, userSlot = 1),
+            ),
+            sourceId = "source-a"
+        )
+        repository.storeReadings(listOf(reading(4_000, userSlot = 1)), sourceId = "source-b")
+        repository.markSynced(1_000, userSlot = 1)
+
+        val uploadSlot1 = repository.unsyncedForSource(sourceId = "source-a", userSlot = 1)
+        val uploadAllSlots = repository.unsyncedForSource(sourceId = "source-a")
+
+        assertEquals(listOf(3_000L), uploadSlot1.map { it.timestampEpochSec })
+        assertEquals(listOf(2_000L, 3_000L), uploadAllSlots.map { it.timestampEpochSec })
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Cross-source query (task tefal2garmin-app-redesign-v3-xlg.6)      //
+    // ------------------------------------------------------------------ //
+
+    /**
+     * The Measurements page's unified query: the listed sources' rows in
+     * one newest-first list, each keeping its source tag (the page's
+     * source attribution) and its Garmin sync state.
+     */
+    @Test
+    fun `allForSources returns the listed sources rows newest first keeping source and sync state`() =
+        runTest {
+            repository.storeReadings(
+                listOf(reading(1_000), reading(3_000)),
+                sourceId = "source-a"
+            )
+            repository.storeReadings(listOf(reading(2_000)), sourceId = "source-b")
+            repository.storeReadings(listOf(reading(4_000)), sourceId = "source-c")
+            repository.markSynced(3_000, userSlot = 1)
+
+            val rows = repository.allForSources(listOf("source-a", "source-b"))
+
+            assertEquals(listOf(3_000L, 2_000L, 1_000L), rows.map { it.timestampEpochSec })
+            assertEquals(listOf("source-a", "source-b", "source-a"), rows.map { it.sourceId })
+            assertTrue("the marked row keeps its synced state", rows[0].synced)
+            assertFalse("an unmarked row stays unsynced", rows[1].synced)
+        }
+
+    /**
+     * No connected sources: the repository answers empty BEFORE the DAO -
+     * Room never sees an empty IN list.
+     */
+    @Test
+    fun `allForSources with no sources answers empty without touching the dao`() = runTest {
+        dao.failure = IllegalStateException("must not be reached")
+
+        assertEquals(
+            emptyList<OmronBpRepository.StoredBpReading>(),
+            repository.allForSources(emptyList())
+        )
+        assertEquals(0, dao.allForSourcesCalls)
+        assertEquals(0, errors.size)
+    }
+
+    /** Same never-throws contract as every other query. */
+    @Test
+    fun `allForSources dao failure answers empty and reports onError`() = runTest {
+        repository.storeReadings(listOf(reading(1_000)), sourceId = "source-a")
+        dao.failure = IllegalStateException("disk I/O error")
+
+        assertEquals(
+            emptyList<OmronBpRepository.StoredBpReading>(),
+            repository.allForSources(listOf("source-a"))
+        )
+        assertEquals(1, errors.size)
+    }
+
+    // ------------------------------------------------------------------ //
     //  Never throws                                                       //
     // ------------------------------------------------------------------ //
 
@@ -290,13 +531,22 @@ class OmronBpRepositoryTest {
         val marked = repository.markSynced(1_000, userSlot = 1)
         val latest = repository.latest(userSlot = 1)
         val all = repository.allForUser(userSlot = 1)
+        val allForSource = repository.allForSource(sourceId = "source-a")
+        val unsyncedForSource = repository.unsyncedForSource(sourceId = "source-a")
+        val allForSources = repository.allForSources(listOf("source-a"))
 
-        assertEquals(OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0), store)
+        assertEquals(
+            OmronBpRepository.StoreResult(insertedCount = 0, duplicatesCount = 0, success = false),
+            store
+        )
         assertEquals(emptyList<BloodPressureReading>(), unsynced)
         assertFalse(marked)
         assertEquals(emptyList<BloodPressureReading>(), latest)
         assertEquals(emptyList<BloodPressureReading>(), all)
-        assertEquals(5, errors.size)
+        assertEquals(emptyList<BloodPressureReading>(), allForSource)
+        assertEquals(emptyList<BloodPressureReading>(), unsyncedForSource)
+        assertEquals(emptyList<OmronBpRepository.StoredBpReading>(), allForSources)
+        assertEquals(8, errors.size)
         assertTrue(errors.all { it is IllegalStateException })
     }
 

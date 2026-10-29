@@ -1,170 +1,106 @@
-# 🔍 Отладка Tefal2Garmin в Android Studio
+# 🔍 Отладка Extra Health Garmin в Android Studio
+
+> Актуально для v3 (единый Compose-интерфейс, источники кровяного давления).
+> Предыдущая версия руководства относилась к CSV-конвертеру v1 и удалена вместе с этим потоком.
 
 ## 📋 Предварительные требования
 
 ### 1. Android Studio
-- Установите Android Studio Arctic Fox или новее
-- Убедитесь, что SDK установлен (API 21+)
+- Установите Android Studio Ladybug или новее
+- Убедитесь, что SDK установлен (API 36)
 
 ### 2. Эмулятор или устройство
 - Создайте AVD (Android Virtual Device) в Android Studio
-- Или подключите физическое Android устройство с включенной отладкой
+- Или подключите физическое Android-устройство с включенной отладкой
+  (для Bluetooth-источников нужен реальный телефон — у эмулятора нет BLE)
 
 ### 3. Debug APK
-- Debug APK уже собран: `app/build/outputs/apk/debug/app-debug.apk`
+```bash
+./gradlew assembleDebug
+# app/build/outputs/apk/debug/app-debug.apk
+```
 
 ## 🚀 Настройка отладки
 
 ### Шаг 1: Открыть проект в Android Studio
 ```bash
-# Откройте Android Studio
-# File → Open → Выберите папку tefal2garmin
+# File → Open → выберите папку проекта
 ```
 
-### Шаг 2: Настроить эмулятор
-1. В Android Studio: **Tools → Device Manager**
-2. Создайте новый эмулятор:
-   - **Device**: Pixel 4 или аналогичный
-   - **System Image**: API 30+ (Android 11+)
-   - **Storage**: Минимум 2GB
-3. Запустите эмулятор
-
-### Шаг 3: Установить приложение в режиме отладки
+### Шаг 2: Собрать и запустить
 ```bash
-# В терминале (или через Android Studio)
+# Сборка + установка + запуск на подключенном устройстве
+./debug_setup.sh
+
+# Или вручную
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.zamotkin.extrahealthgarmin/.MainActivity
 ```
 
-## 🐛 Процесс отладки
-
-### Шаг 1: Запустить приложение в режиме отладки
-1. В Android Studio откройте `MainActivity.kt`
-2. Поставьте breakpoint на строке 197: `Log.d(TAG, "Handling intent: ${intent?.action}")`
-3. Нажмите **Run → Debug 'app'**
-4. Выберите запущенный эмулятор
-
-### Шаг 2: Подготовить тестовый файл
-```bash
-# Скопировать тестовый файл в эмулятор
-adb push test_files/Goodvibes-Dmitry-20251026231908-data.csv /sdcard/Download/
-```
-
-### Шаг 3: Тестирование загрузки файла
-
-#### Вариант A: Через файловый менеджер
-1. В эмуляторе откройте **Files** (или любой файловый менеджер)
-2. Перейдите в **Downloads**
-3. Долгое нажатие на `Goodvibes-Dmitry-20251026231908-data.csv`
-4. Выберите **Share** → **Tefal2Garmin Sync**
-
-#### Вариант B: Через ADB
-```bash
-# Отправить файл через intent
-adb shell am start -a android.intent.action.SEND \
-  -t "text/csv" \
-  --eu android.intent.extra.STREAM file:///sdcard/Download/Goodvibes-Dmitry-20251026231908-data.csv \
-  com.example.tefal2garmin/.MainActivity
-```
-
-### Шаг 4: Мониторинг логов
+### Шаг 3: Мониторинг логов
 
 #### В Android Studio (Logcat)
-1. Откройте **Logcat** tab
-2. Фильтр: `package:com.example.tefal2garmin`
-3. Ищите логи с тегом `MainActivity`
+1. Откройте вкладку **Logcat**
+2. Фильтр: `package:com.zamotkin.extrahealthgarmin`
+3. Каждому классу соответствует свой TAG (см. `companion object`)
 
 #### В терминале
 ```bash
-# Мониторинг логов в реальном времени
-adb logcat | grep -i "tefal2garmin\\|mainactivity\\|csv"
+# Основные TAGи синхронизации взвешиваний
+adb logcat -s MainActivity MainViewModel SyncWorker
+
+# Garmin-аутентификация и HTTP
+adb logcat -s MainActivity GarminAuth GarminHttp
 ```
+
+## 🗺️ Где что искать в приложении
+
+Приложение — одно activity на Jetpack Compose с нижней навигацией
+(Home / Measurements / Settings):
+
+| Экран / поток | Путь в UI | Код |
+| :--- | :--- | :--- |
+| Синхронизация взвешиваний | Home → **Sync now** | `ui/screens/home`, `health/SyncEngine` |
+| Фоновая синхронизация (~3 ч) | автоматическая | `health/SyncWorker` |
+| Вход в Garmin (email + MFA) | Settings → Garmin Connect | `garmin/GarminAuthClient`, `ui/navigation` |
+| Разрешения Health Connect | Settings → Health Connect | `health/HealthPermissions` |
+| Добавление источника АД | Settings → Connections → **Add source** | `ui/screens/devices`, `devices/` |
+| Чтение показаний | Measurements → **Read now** | `devices/SourceReadUseCase`, `omron/ble` |
+| Настройки источника (режим, пользователь, удаление) | Settings → Connections → источник | `devices/store/ConnectedSourceStore` |
 
 ## 🔍 Возможные проблемы и решения
 
-### Проблема 1: "Unsupported file type"
-**Симптомы:** Приложение показывает ошибку "Unsupported file type"
+### Проблема 1: Источник Omron не читается
 **Решение:**
-- Проверьте MIME тип файла: `file --mime-type test_files/Goodvibes-Dmitry-20251026231908-data.csv`
-- Убедитесь, что файл передается с правильным MIME типом
+- Монитор должен быть разбужен: сделайте измерение или нажмите кнопку на корпусе
+- M7 Intelli IT сопрягается с одним приложением: отвяжите его от Omron Connect
+- Смотрите логи BLE: `adb logcat -s OmronGattConnection OmronBleClient`
+- Протокол обмена описан в [omron-protocol.md](omron-protocol.md)
 
-### Проблема 2: "Content does not appear to be CSV data"
-**Симптомы:** Файл проходит валидацию заголовков, но падает на проверке содержимого
+### Проблема 2: Стандартный BLE-монитор (0x1810) не находится
 **Решение:**
-- Проверьте содержимое файла на наличие CSV структуры
-- Убедитесь, что файл в кодировке UTF-8
+- Первый read проходит через системное Bluetooth-окно Android (bonding) — подтвердите его
+- Профиль и проверенные семейства устройств: [ble-1810-protocol.md](ble-1810-protocol.md)
 
-### Проблема 3: Приложение крашится
-**Симптомы:** Приложение закрывается при загрузке файла
+### Проблема 3: Загрузка в Garmin не проходит
 **Решение:**
-- Проверьте Logcat на исключения
-- Убедитесь, что все разрешения предоставлены
+- Settings → Garmin Connect: проверьте статус аккаунта; при необходимости войдите заново
+- Debug-сборки логируют HTTP с вырезанными секретами (`RedactingHttpLogger`) — смотрите `GarminHttp`
+- Неудачные записи остаются в приложении и повторяются при следующем проходе
 
-### Проблема 4: Файл не отображается в Downloads
-**Симптомы:** Файл не виден в файловом менеджере
+### Проблема 4: Health Connect не отдает данные
 **Решение:**
-```bash
-# Проверить, что файл скопирован
-adb shell ls -la /sdcard/Download/
+- Settings → Health Connect → **Manage access**: проверьте разрешения чтения
+- Фоновое чтение на некоторых провайдерах недоступно — синхронизируйте вручную
+- Первый запуск делает backfill за 30 дней; дальше — только новые записи
 
-# Перезапустить Media Scanner
-adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/Goodvibes-Dmitry-20251026231908-data.csv
-```
+## 🧪 Отладка Garmin-аутентификации (только debug-сборки)
 
-## 📊 Ключевые точки отладки
-
-### В MainActivity.kt:
-- **Строка 197**: `handleIntent()` - входная точка обработки файла
-- **Строка 207**: Валидация intent
-- **Строка 211**: Проверка MIME типа
-- **Строка 244**: Обработка текстового содержимого
-- **Строка 258**: Показ диалога ошибки
-
-### В CsvValidator.kt:
-- **validateHeaders()**: Проверка заголовков CSV
-- **validateEncoding()**: Проверка кодировки
-
-### В CsvReader.kt:
-- **readCsvFile()**: Чтение файла
-
-## 🛠️ Дополнительные инструменты отладки
-
-### Device File Explorer
-1. В Android Studio: **View → Tool Windows → Device File Explorer**
-2. Перейдите в `/sdcard/Download/`
-3. Проверьте наличие файла
-
-### Memory Profiler
-1. **Run → Profiler**
-2. Мониторьте использование памяти при обработке больших файлов
-
-### Network Profiler
-1. Убедитесь, что приложение не делает сетевых запросов
-2. Все должно обрабатываться локально
-
-## 📝 Логи для анализа
-
-### Успешная обработка:
-```
-MainActivity: Handling intent: android.intent.action.SEND
-MainActivity: Valid intent received with MIME type: text/csv
-CsvValidator: Header validation passed for format: primary
-CsvReader: Successfully read 2 records from CSV
-```
-
-### Возможные ошибки:
-```
-MainActivity: Intent validation failed: Unsupported file type
-CsvValidator: Header validation failed: Missing required headers
-CsvReader: Failed to read CSV file: java.io.IOException
-```
-
-## 🎯 Следующие шаги после отладки
-
-1. **Зафиксировать найденные проблемы**
-2. **Добавить дополнительные логи** если нужно
-3. **Исправить код** на основе найденных ошибок
-4. **Пересобрать** и протестировать снова
-5. **Создать финальный релиз** с исправлениями
+Debug-сборки содержат скрытый триггер «спайка» — один живой вход DI OAuth2 с отчетом в logcat:
+положите `GARMINSPIKE_EMAIL` / `GARMINSPIKE_PASSWORD` / `GARMINSPIKE_MFA_CODE` в
+`~/.gradle/gradle.properties`, соберите debug-APK и сделайте **долгое нажатие на строку статуса
+Garmin Connect** в Settings. Наблюдайте `adb logcat -s MainActivity GarminAuth GarminHttp`.
+В release-сборках триггера нет.
 
 ## 📞 Полезные команды
 
@@ -173,12 +109,18 @@ CsvReader: Failed to read CSV file: java.io.IOException
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 # Очистить данные приложения
-adb shell pm clear com.example.tefal2garmin
+adb shell pm clear com.zamotkin.extrahealthgarmin
 
 # Перезапустить приложение
-adb shell am force-stop com.example.tefal2garmin
-adb shell am start -n com.example.tefal2garmin/.MainActivity
+adb shell am force-stop com.zamotkin.extrahealthgarmin
+adb shell am start -n com.zamotkin.extrahealthgarmin/.MainActivity
 
 # Получить информацию о приложении
-adb shell dumpsys package com.example.tefal2garmin
+adb shell dumpsys package com.zamotkin.extrahealthgarmin
+
+# Запустить тесты
+./gradlew testDebugUnitTest
+
+# Проверка lint
+./gradlew lintDebug
 ```

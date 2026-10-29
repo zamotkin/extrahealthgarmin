@@ -1,4 +1,4 @@
-# 🔧 Настройка отладки Android для Tefal2Garmin
+# 🔧 Настройка отладки Android для Extra Health Garmin
 
 ## ⚠️ Проблема: ADB не найден
 
@@ -51,10 +51,10 @@
    sdkmanager "platform-tools"
 
    # Установите build tools
-   sdkmanager "build-tools;30.0.3"
+   sdkmanager "build-tools;34.0.0"
 
-   # Установите платформу
-   sdkmanager "platforms;android-30"
+   # Установите платформу (compileSdk 36)
+   sdkmanager "platforms;android-36"
    ```
 
 ## 🚀 После установки SDK
@@ -69,7 +69,7 @@ adb version
 1. В Android Studio: **Tools → Device Manager**
 2. **Create Device**
    - Выберите **Pixel 4** или аналогичный
-   - **System Image**: API 30 (Android 11)
+   - **System Image**: API 34 (Android 14) или новее
    - **Storage**: 2GB+
 3. **Запустите эмулятор**
 
@@ -102,9 +102,9 @@ adb version
 2. **Создайте эмулятор** через Device Manager
 3. **Запустите приложение**: Run → Run 'app'
 4. **Тестируйте вручную**:
-   - Откройте Files → Downloads
-   - Найдите тестовый файл
-   - Share → Tefal2Garmin
+   - Home → **Sync now** — синхронизация взвешиваний
+   - Settings → Connections → **Add source** — добавление источника кровяного давления
+   - Measurements → **Read now** — чтение показаний тонометра
 
 ## 🐛 Возможные проблемы
 
@@ -136,9 +136,9 @@ adb devices
 
 1. **Запустите**: `./debug_setup.sh`
 2. **Откройте Android Studio**
-3. **Установите breakpoints** в MainActivity.kt
+3. **Установите breakpoints** в коде экранов (`ui/screens`) или движка синхронизации (`health/SyncEngine`)
 4. **Запустите отладку**: Run → Debug 'app'
-5. **Тестируйте загрузку файла**
+5. **Тестируйте потоки**: синхронизация взвешиваний (Home), источник кровяного давления (Settings → Connections), чтение показаний (Measurements)
 6. **Анализируйте логи** в Logcat
 
 ## 📋 Быстрая проверка
@@ -155,5 +155,5 @@ adb devices
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 # Проверить логи
-adb logcat | grep -i tefal2garmin
+adb logcat -s MainActivity MainViewModel SyncWorker
 ```

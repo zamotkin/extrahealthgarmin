@@ -75,7 +75,8 @@ class BpSyncCoordinatorTest {
             return records.map { record ->
                 val duplicate = rows.any {
                     it.timestampEpochSec == record.timestampEpochSec &&
-                        it.userSlot == record.userSlot
+                        it.userSlot == record.userSlot &&
+                        it.sourceId == record.sourceId
                 }
                 if (duplicate) {
                     -1L
@@ -86,6 +87,11 @@ class BpSyncCoordinatorTest {
                 }
             }
         }
+
+        // The unified cross-source query (task xlg.6) is not exercised by
+        // the coordinator; OmronBpRepositoryTest pins it.
+        override suspend fun allForSources(sourceIds: List<String>): List<BloodPressureRecordEntity> =
+            emptyList()
 
         override suspend fun unsyncedForUser(userSlot: Int): List<BloodPressureRecordEntity> {
             failure?.let { throw it }
@@ -102,11 +108,12 @@ class BpSyncCoordinatorTest {
         override suspend fun markSynced(timestampEpochSec: Long, userSlot: Int) {
             markSyncedFailure?.let { throw it }
             failure?.let { throw it }
-            val index = rows.indexOfFirst {
-                it.timestampEpochSec == timestampEpochSec && it.userSlot == userSlot
-            }
-            if (index >= 0) {
-                rows[index] = rows[index].copy(synced = true)
+            // Mirrors the DAO SQL: every source's row with that key flips.
+            rows.indices.forEach { index ->
+                val row = rows[index]
+                if (row.timestampEpochSec == timestampEpochSec && row.userSlot == userSlot) {
+                    rows[index] = row.copy(synced = true)
+                }
             }
         }
 
@@ -123,6 +130,33 @@ class BpSyncCoordinatorTest {
             return rows
                 .filter { it.userSlot == userSlot }
                 .sortedByDescending { it.timestampEpochSec }
+        }
+
+        // Source-scoped queries (task tefal2garmin-app-redesign-v3-xlg.4):
+        // faithful implementations, though the coordinator never calls them.
+
+        override suspend fun allForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter { it.sourceId == sourceId && (userSlot == null || it.userSlot == userSlot) }
+                .sortedByDescending { it.timestampEpochSec }
+        }
+
+        override suspend fun unsyncedForSource(
+            sourceId: String,
+            userSlot: Int?,
+        ): List<BloodPressureRecordEntity> {
+            failure?.let { throw it }
+            return rows
+                .filter {
+                    it.sourceId == sourceId &&
+                        !it.synced &&
+                        (userSlot == null || it.userSlot == userSlot)
+                }
+                .sortedBy { it.timestampEpochSec }
         }
     }
 

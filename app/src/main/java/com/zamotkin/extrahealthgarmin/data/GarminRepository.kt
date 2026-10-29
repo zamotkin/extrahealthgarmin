@@ -59,6 +59,15 @@ interface GarminUploadOrchestrator {
     suspend fun uploadNewRecords(records: List<GarminWeighInRecord>): UploadOutcome
 
     fun hasStoredToken(): Boolean
+
+    /**
+     * Clears the stored Garmin tokens (user sign-out, task
+     * tefal2garmin-app-redesign-v3-xlg.7). Nothing else: the dedup journals
+     * and the sync state stay intact, so a later [login] resumes exactly
+     * where the sync left off — the same invariant as the automatic token
+     * clear on an auth failure.
+     */
+    fun signOut()
 }
 
 /**
@@ -196,11 +205,31 @@ class GarminRepository internal constructor(
      */
     private val bpUploadMutex = Mutex()
 
+    /**
+     * Sign-out gate (task xlg.8, the xlg.7 review): an upload pass that
+     * loaded its tokens BEFORE [signOut] may still finish and try to persist
+     * its (possibly rotated) tokens — which would resurrect the session the
+     * sign-out just cleared (hasStoredToken() true again on the next start,
+     * the worker happily syncing on). While set, upload paths drop their
+     * token saves; the next successful [login] clears it.
+     */
+    @Volatile
+    private var signedOut: Boolean = false
+
     // ------------------------------------------------------------------ //
     //  GarminUploadOrchestrator                                           //
     // ------------------------------------------------------------------ //
 
     override fun hasStoredToken(): Boolean = tokenStore.load() != null
+
+    override fun signOut() {
+        // Only the tokens go; the journals and the sync state are not this
+        // repository's to touch. A half-finished MFA flow is dropped too, so
+        // the next sign-in starts a fresh login instead of resuming a dead one.
+        pendingMfaClientState = null
+        signedOut = true
+        tokenStore.clear()
+    }
 
     override suspend fun login(email: String, password: String, mfaCode: String?): LoginStatus =
         withContext(Dispatchers.IO) {
@@ -213,7 +242,7 @@ class GarminRepository internal constructor(
                     mfaCode != null && pending != null -> {
                         val tokens = remote.resumeLogin(pending, mfaCode)
                         pendingMfaClientState = null
-                        tokenStore.save(tokens)
+                        loginSucceeded(tokens)
                         LoginStatus.Success
                     }
                     // Resend code with a pending flow: the client gate must be
@@ -249,16 +278,43 @@ class GarminRepository internal constructor(
                     // the flow this very login just started.
                     val tokens = remote.resumeLogin(result.clientState, mfaCode)
                     pendingMfaClientState = null
-                    tokenStore.save(tokens)
+                    loginSucceeded(tokens)
                     LoginStatus.Success
                 }
             }
             is LoginResult.Success -> {
                 pendingMfaClientState = null
-                tokenStore.save(result.tokens)
+                loginSucceeded(result.tokens)
                 LoginStatus.Success
             }
         }
+    }
+
+    /**
+     * Persists the tokens a successful login produced. A fresh login ends
+     * any sign-out (its tokens ARE the new session), so this also clears the
+     * [signedOut] gate — only the saves of in-flight upload passes stay
+     * suppressed.
+     */
+    private fun loginSucceeded(tokens: GarminTokens) {
+        signedOut = false
+        tokenStore.save(tokens)
+    }
+
+    /**
+     * Persists the (possibly rotated) tokens an upload pass actually used —
+     * unless the user signed out while the pass was in flight: a pass that
+     * loaded its tokens before [signOut] must not write them back, or the
+     * session the sign-out cleared resurrects itself (the xlg.7 review
+     * race). The pass's own outcome (upload, journaling) is untouched —
+     * only the persistence of tokens is gated.
+     */
+    private fun persistRotatedTokens(tokens: GarminTokens) {
+        if (signedOut) {
+            Log.d(TAG, "Upload: dropping the token save - the user signed out during the pass")
+            return
+        }
+        tokenStore.save(tokens)
     }
 
     override suspend fun uploadNewRecords(records: List<GarminWeighInRecord>): UploadOutcome =
@@ -302,7 +358,7 @@ class GarminRepository internal constructor(
                     journal.markSent(alreadyInGarmin.map { it.journalKey() })
                 }
                 if (toUpload.isEmpty()) {
-                    tokenStore.save(existing.tokens)
+                    persistRotatedTokens(existing.tokens)
                     return@withContext UploadOutcome.NotNeeded
                 }
                 val (uploadBatch, uploadTokens) = withProfileBmi(toUpload, existing.tokens)
@@ -312,7 +368,7 @@ class GarminRepository internal constructor(
                         // Persist the (possibly rotated) tokens the upload actually
                         // used — dropping them forces a re-login once the old
                         // refresh token expires (task 5 fix).
-                        tokenStore.save(result.tokens)
+                        persistRotatedTokens(result.tokens)
                         Log.d(TAG, "Upload: ${toUpload.size} records confirmed by Garmin")
                         UploadOutcome.Success(toUpload.size)
                     }
@@ -320,7 +376,7 @@ class GarminRepository internal constructor(
                         // Journal ONLY the provably imported keys; everything
                         // else stays retriable.
                         journal.markSent(result.succeededKeys)
-                        tokenStore.save(result.tokens)
+                        persistRotatedTokens(result.tokens)
                         val succeeded = result.succeededKeys.toHashSet()
                         UploadOutcome.Partial(
                             uploadedCount = toUpload.count { it.journalKey() in succeeded },
@@ -419,7 +475,7 @@ class GarminRepository internal constructor(
                         is UploadResult.Success -> {
                             bpJournal.markUploaded(newRecords)
                             // Persist the (possibly rotated) tokens the upload actually used.
-                            tokenStore.save(result.tokens)
+                            persistRotatedTokens(result.tokens)
                             Log.d(TAG, "BP upload: ${newRecords.size} records confirmed by Garmin")
                             UploadOutcome.BpUploaded(newRecords)
                         }
@@ -429,7 +485,7 @@ class GarminRepository internal constructor(
                             val confirmedByKey = result.succeededKeys.toHashSet()
                             val confirmed = newRecords.filter { it.bpJournalKey() in confirmedByKey }
                             bpJournal.markUploaded(confirmed)
-                            tokenStore.save(result.tokens)
+                            persistRotatedTokens(result.tokens)
                             UploadOutcome.BpUploaded(confirmed, result.failureMessages)
                         }
                     }
